@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" width="1200" height="360" role="img" aria-label="Dockman — one desktop app to manage Docker and Podman">
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0976a"/>
+      <stop offset="1" stop-color="#dc6e52"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="24%" r="65%">
+      <stop offset="0" stop-color="#e8825c" stop-opacity="0.24"/>
+      <stop offset="0.55" stop-color="#e8825c" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#e8825c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8f3e7"/>
+      <stop offset="1" stop-color="#d8d2c0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="360" fill="#0d0c0a"/>
+  <rect width="1200" height="360" fill="url(#glow)"/>
+  <rect x="0.5" y="0.5" width="1199" height="359" fill="none" stroke="#ece6d6" stroke-opacity="0.08"/>
+
+  <!-- faint container-cube motifs -->
+  <g fill="none" stroke="#e8825c" stroke-opacity="0.10" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <g transform="translate(58,150) scale(7)">
+      <path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/>
+    </g>
+    <g transform="translate(956,34) scale(9)">
+      <path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/>
+    </g>
+  </g>
+
+  <!-- app mark -->
+  <rect x="552" y="56" width="96" height="96" rx="24" fill="url(#mark)"/>
+  <rect x="552.75" y="56.75" width="94.5" height="94.5" rx="23.25" fill="none" stroke="#ffffff" stroke-opacity="0.20"/>
+  <g transform="translate(576,80) scale(2)" fill="none" stroke="#241a0f" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="600" y="241" text-anchor="middle" fill="url(#word)"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="74" font-weight="700" letter-spacing="-2">Dockman</text>
+
+  <!-- tagline -->
+  <text x="600" y="285" text-anchor="middle" fill="#9a9384"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="22">One desktop app to manage Docker &amp; Podman</text>
+
+  <!-- sub line -->
+  <text x="600" y="323" text-anchor="middle" fill="#6b6657"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="12.5" letter-spacing="3">FREE  ·  OPEN SOURCE  ·  macOS  ·  LINUX  ·  WINDOWS</text>
+</svg>

@@ -8,7 +8,7 @@
 # .github/workflows/release.yml, which publishes installers for macOS,
 # Windows and Linux.
 
-REPO_URL := https://github.com/AbyAbyss/abyss_pod
+REPO_URL := https://github.com/AbyAbyss/dockman
 
 .DEFAULT_GOAL := help
 .PHONY: help release

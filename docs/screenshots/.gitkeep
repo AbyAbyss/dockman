@@ -1,0 +1,3 @@
+# Drop the app screenshots in this folder. The README expects these names:
+#   dashboard.png  containers.png  run-container.png  run-container-progress.png
+#   images.png  volumes.png  networks.png  builds.png  binaries.png  settings.png

@@ -19,3 +19,4 @@ npm-debug.log*
 !.vscode/extensions.json
 .idea
 *.local
+CLAUDE.md
