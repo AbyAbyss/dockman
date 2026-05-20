@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { TabBar } from '@/components/layout/TabBar';
 import { TABS } from '@/lib/tabs';
+import { SystemCommands } from '@/lib/commands';
 import { useCounts } from '@/hooks/useCounts';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, PALETTES, useThemeStore } from '@/store/themeStore';
@@ -25,6 +26,15 @@ export default function App() {
 
   const pal = PALETTES[theme.palette];
   const acc = ACCENTS[theme.accent];
+
+  // Window translucency: native vibrancy (applied by the Rust side) provides the
+  // blur; this CSS alpha controls how much of it shows. Disabled → fully opaque.
+  const translucency = theme.translucent ? theme.translucency : 0;
+  const mix = (c: string) =>
+    translucency === 0
+      ? c
+      : `color-mix(in oklab, ${c} ${100 - translucency}%, transparent)`;
+  const winBg = mix(pal.bg);
 
   // Live mode: poll the real container inventory. Seed mode: gentle CPU drift
   // so the prototype UI still feels alive.
@@ -50,9 +60,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Mirror the window fill onto <html> so <body> + overscroll match the shell.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--win-bg', winBg);
+  }, [winBg]);
+
+  // Apply or clear the native macOS vibrancy / Windows acrylic backing.
+  useEffect(() => {
+    SystemCommands.setTranslucent(theme.translucent).catch(() => undefined);
+  }, [theme.translucent]);
+
   const rootStyle: Record<string, string> = {
     '--bg': pal.bg,
-    '--surface': pal.surface,
+    '--surface': mix(pal.surface),
     '--text': pal.text,
     '--dim': pal.dim,
     '--line': pal.line,

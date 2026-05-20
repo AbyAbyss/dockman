@@ -406,6 +406,41 @@ export default function Settings() {
               className="range-input"
             />
           </div>
+          <div className="ap-group">
+            <div className="bc-section">
+              <span>
+                Window translucency
+                {theme.translucent ? ` · ${theme.translucency}%` : ''}
+              </span>
+            </div>
+            <div className="fchip-row">
+              <button
+                type="button"
+                className={`fchip ${!theme.translucent ? 'is-on' : ''}`}
+                onClick={() => theme.setTranslucent(false)}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={`fchip ${theme.translucent ? 'is-on' : ''}`}
+                onClick={() => theme.setTranslucent(true)}
+              >
+                On
+              </button>
+            </div>
+            {theme.translucent && (
+              <input
+                type="range"
+                min="10"
+                max="80"
+                value={theme.translucency}
+                onChange={(e) => theme.setTranslucency(Number(e.target.value))}
+                className="range-input"
+                style={{ marginTop: 10 }}
+              />
+            )}
+          </div>
         </div>
       </BentoCard>
 

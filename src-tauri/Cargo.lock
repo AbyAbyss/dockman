@@ -814,6 +814,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-shell",
  "which",
+ "window-vibrancy",
 ]
 
 [[package]]

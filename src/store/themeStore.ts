@@ -32,6 +32,8 @@ interface ThemeState {
   tabCollapsed: boolean;
   defaultTab: TabKey;
   m1Fallback: boolean;
+  translucent: boolean;
+  translucency: number;
 
   setPalette: (p: PaletteName) => void;
   setAccent: (a: AccentName) => void;
@@ -41,6 +43,8 @@ interface ThemeState {
   setTabCollapsed: (c: boolean) => void;
   setDefaultTab: (t: TabKey) => void;
   setM1Fallback: (v: boolean) => void;
+  setTranslucent: (v: boolean) => void;
+  setTranslucency: (v: number) => void;
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -54,6 +58,8 @@ export const useThemeStore = create<ThemeState>()(
       tabCollapsed: false,
       defaultTab: 'overview',
       m1Fallback: true,
+      translucent: false,
+      translucency: 35,
 
       setPalette: (palette) => set({ palette }),
       setAccent: (accent) => set({ accent }),
@@ -63,6 +69,8 @@ export const useThemeStore = create<ThemeState>()(
       setTabCollapsed: (tabCollapsed) => set({ tabCollapsed }),
       setDefaultTab: (defaultTab) => set({ defaultTab }),
       setM1Fallback: (m1Fallback) => set({ m1Fallback }),
+      setTranslucent: (translucent) => set({ translucent }),
+      setTranslucency: (translucency) => set({ translucency }),
     }),
     { name: 'dockman-theme' },
   ),

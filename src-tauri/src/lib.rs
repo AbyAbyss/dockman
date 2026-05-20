@@ -68,6 +68,7 @@ pub fn run() {
             system::system_prune,
             system::open_url,
             system::quit_app,
+            system::set_window_translucent,
             // volumes
             volumes::list_volumes,
             volumes::create_volume,

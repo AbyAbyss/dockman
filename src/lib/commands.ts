@@ -246,6 +246,8 @@ export const SystemCommands = {
   prune: (rt: RuntimeName) => invoke<string>('system_prune', { runtime: rt }),
   openUrl: (url: string) => invoke<void>('open_url', { url }),
   quit: () => invoke<void>('quit_app'),
+  setTranslucent: (enabled: boolean) =>
+    invoke<void>('set_window_translucent', { enabled }),
 };
 
 // ─── Binary downloader ───────────────────────────────────────────────────────
