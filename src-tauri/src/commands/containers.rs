@@ -117,6 +117,7 @@ pub async fn run_container(
     ports: Vec<String>,
     env: Vec<String>,
     volumes: Vec<String>,
+    command: Vec<String>,
     detach: bool,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
@@ -147,6 +148,11 @@ pub async fn run_container(
         args.push(v);
     }
     args.push(image);
+    // An optional command / args override, appended after the image — also
+    // covers one-off "run a command on an image" use.
+    for c in command {
+        args.push(c);
+    }
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     super::run(&bin, &arg_refs).map(|s| s.trim().to_string())
 }

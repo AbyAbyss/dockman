@@ -101,6 +101,7 @@ export default function Images() {
       ports: [],
       env: [],
       volumes: [],
+      command: [],
       detach: true,
     })
       .then(() => refreshContainers())

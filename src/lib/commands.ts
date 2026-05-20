@@ -54,6 +54,8 @@ export interface RunContainerConfig {
   ports: string[];
   env: string[];
   volumes: string[];
+  /** Optional command / args override, appended after the image. */
+  command: string[];
   detach: boolean;
 }
 

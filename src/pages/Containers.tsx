@@ -1,15 +1,17 @@
 // Containers — full management view: filterable table with expandable detail
 // rows, compose-stack grouping and exec history.
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
 import { RuntimeBadge } from '@/components/ui/Runtime';
 import { LaunchCard } from '@/components/ui/LaunchCard';
+import { RunContainerModal } from '@/components/ui/RunContainerModal';
+import { ExecModal } from '@/components/ui/ExecModal';
 import { useAppStore } from '@/store/appStore';
-import { ContainerCommands, containerLogsEvent, execOutputEvent } from '@/lib/commands';
+import { ContainerCommands, containerLogsEvent } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
 import type { Container, ContainerStatus, RuntimeName } from '@/types';
 
@@ -88,81 +90,15 @@ const STATIC_ENV: [string, string][] = [
   ['DATABASE_URL', 'postgres://…'],
 ];
 
-/** Inline pipe-based exec shell for a running container. */
-function ExecTerminal({ container }: { container: Container }) {
-  const live = useAppStore((s) => s.live);
-  const [lines, setLines] = useState<string[]>(['connecting…']);
-  const [cmd, setCmd] = useState('');
-  const sessionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!live) return;
-    let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
-    ContainerCommands.execStart(container.rt, container.id, '/bin/sh')
-      .then(async (id) => {
-        if (cancelled) {
-          ContainerCommands.execStop(id).catch(() => undefined);
-          return;
-        }
-        sessionRef.current = id;
-        setLines(['shell ready — type a command and press Enter']);
-        unlisten = await listen<string>(execOutputEvent(id), (l) =>
-          setLines((prev) => [...prev.slice(-300), l]),
-        );
-      })
-      .catch((e) => setLines([`exec failed: ${String(e)}`]));
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      const id = sessionRef.current;
-      if (id) ContainerCommands.execStop(id).catch(() => undefined);
-    };
-  }, [live, container.rt, container.id]);
-
-  if (!live) {
-    return (
-      <div className="det-label">Exec is available when running the desktop app.</div>
-    );
-  }
-
-  const send = () => {
-    const id = sessionRef.current;
-    if (!id || !cmd.trim()) return;
-    setLines((prev) => [...prev, `$ ${cmd}`]);
-    ContainerCommands.execInput(id, `${cmd}\n`).catch(() => undefined);
-    setCmd('');
-  };
-
-  return (
-    <div>
-      <div className="det-label" style={{ marginBottom: 6 }}>
-        Shell · {container.name}
-      </div>
-      <pre className="logs" style={{ maxHeight: 200 }}>
-        {lines.map((l, i) => (
-          <div key={i}>{l}</div>
-        ))}
-      </pre>
-      <div className="pull-input" style={{ marginTop: 6 }}>
-        <Glyph name="command" size={13} />
-        <input
-          value={cmd}
-          onChange={(e) => setCmd(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') send();
-          }}
-          placeholder="/bin/sh — e.g. ls -la"
-        />
-      </div>
-    </div>
-  );
-}
-
 /** Expanded container detail: live logs, environment, network + exec shell. */
-function ContainerDetail({ container }: { container: Container }) {
+function ContainerDetail({
+  container,
+  onExec,
+}: {
+  container: Container;
+  onExec: (c: Container) => void;
+}) {
   const live = useAppStore((s) => s.live);
-  const [showExec, setShowExec] = useState(false);
   const [env, setEnv] = useState<[string, string][]>([]);
   const [net, setNet] = useState({
     name: 'dockman-backend',
@@ -267,24 +203,13 @@ function ContainerDetail({ container }: { container: Container }) {
               type="button"
               disabled={!running}
               title={running ? undefined : 'Container must be running'}
-              onClick={() => setShowExec((v) => !v)}
+              onClick={() => onExec(container)}
             >
-              <Glyph name="command" size={12} /> {showExec ? 'Close shell' : 'Exec'}
+              <Glyph name="terminal" size={12} /> Open shell
             </button>
           </div>
         </div>
       </div>
-      {showExec && running && (
-        <div
-          style={{
-            padding: '14px 18px 18px',
-            background: 'var(--bg)',
-            borderBottom: '0.5px solid var(--line)',
-          }}
-        >
-          <ExecTerminal container={container} />
-        </div>
-      )}
     </>
   );
 }
@@ -302,6 +227,10 @@ export default function Containers() {
   const stopStack = useAppStore((s) => s.stopStack);
   const refresh = useAppStore((s) => s.refresh);
   const [launching, setLaunching] = useState<RuntimeName | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
+  const [execTarget, setExecTarget] = useState<Container | null>(null);
+
+  const composerRuntime: RuntimeName = runtimeFilter === 'podman' ? 'podman' : 'docker';
 
   // Run the canonical hello-world image — a quick "does my runtime work" test.
   const runHello = (rt: RuntimeName) => {
@@ -311,6 +240,7 @@ export default function Containers() {
       ports: [],
       env: [],
       volumes: [],
+      command: [],
       detach: true,
     })
       .then(() => refresh())
@@ -432,6 +362,15 @@ export default function Containers() {
         span={12}
         className="card-flush"
         headerAlign="left"
+        headerAside={
+          <button
+            className="action-btn primary"
+            type="button"
+            onClick={() => setRunOpen(true)}
+          >
+            <Glyph name="plus" size={12} /> Run Container
+          </button>
+        }
       >
         <div className="ctable">
           <div className="cth">
@@ -510,6 +449,9 @@ export default function Containers() {
                       )}
                       {c.status === 'running' && (
                         <>
+                          <button className="iconbtn" type="button" title="Open shell" onClick={() => setExecTarget(c)}>
+                            <Glyph name="terminal" size={13} />
+                          </button>
                           <button className="iconbtn" type="button" title="Pause" onClick={() => setContainerStatus(c.id, 'paused')}>
                             <Glyph name="pause" size={13} />
                           </button>
@@ -527,7 +469,9 @@ export default function Containers() {
                     </div>
                   </div>
 
-                  {expanded === c.id && <ContainerDetail container={c} />}
+                  {expanded === c.id && (
+                    <ContainerDetail container={c} onExec={setExecTarget} />
+                  )}
                 </Fragment>
               ))}
             </Fragment>
@@ -541,8 +485,22 @@ export default function Containers() {
               <Glyph name="container" size={24} />
               {containers.length === 0 ? (
                 <>
-                  <div>No containers yet — run a test image to check your runtime.</div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div>No containers yet — launch any image, or run a quick test.</div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <button
+                      className="action-btn primary"
+                      type="button"
+                      onClick={() => setRunOpen(true)}
+                    >
+                      <Glyph name="plus" size={12} /> Run Container
+                    </button>
                     {(runtimeFilter === 'all'
                       ? (['docker', 'podman'] as RuntimeName[])
                       : [runtimeFilter]
@@ -553,7 +511,7 @@ export default function Containers() {
                         type="button"
                         onClick={() => runHello(rt)}
                       >
-                        <Glyph name="play" size={12} /> Run hello-world on {rt}
+                        <Glyph name="play" size={12} /> hello-world · {rt}
                       </button>
                     ))}
                   </div>
@@ -639,6 +597,19 @@ export default function Containers() {
           ))}
         </div>
       </BentoCard>
+
+      {runOpen && (
+        <RunContainerModal
+          defaultRuntime={composerRuntime}
+          onClose={() => setRunOpen(false)}
+        />
+      )}
+      {execTarget && (
+        <ExecModal
+          container={execTarget}
+          onClose={() => setExecTarget(null)}
+        />
+      )}
     </div>
   );
 }

@@ -13,9 +13,15 @@ import type { RuntimeName } from '@/types';
 const CONTAINER_PATH =
   'M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10';
 
-const STAGES = ['Pulling hello-world image', 'Creating container', 'Starting up'];
+const STAGES = ['Pulling image layers', 'Creating container', 'Starting up'];
 
-export function LaunchCard({ rt }: { rt: RuntimeName }) {
+export function LaunchCard({
+  rt,
+  image = 'hello-world',
+}: {
+  rt: RuntimeName;
+  image?: string;
+}) {
   const [stage, setStage] = useState(0);
 
   useEffect(() => {
@@ -40,7 +46,7 @@ export function LaunchCard({ rt }: { rt: RuntimeName }) {
 
       <div className="launch-head">
         <div className="launch-title">Scaffolding container</div>
-        <div className="launch-sub mono">hello-world · {rt}</div>
+        <div className="launch-sub mono">{image} · {rt}</div>
       </div>
 
       <div className="launch-track" role="progressbar" aria-label="Launching container">

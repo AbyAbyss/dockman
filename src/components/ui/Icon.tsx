@@ -32,6 +32,8 @@ export const ICONS = {
   bolt: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z',
   filter: 'M3 5h18l-7 9v6l-4-2v-4L3 5z',
   dot: 'M12 12h.01',
+  close: ['M6 6l12 12', 'M18 6L6 18'],
+  terminal: ['M5 5h14v14H5z', 'M8 9l3 3-3 3', 'M13 15h4'],
 } as const;
 
 export type IconName = keyof typeof ICONS;

@@ -207,6 +207,7 @@ function RunningStackCard({ containers, query }: { containers: Container[]; quer
       ports: [],
       env: [],
       volumes: [],
+      command: [],
       detach: true,
     })
       .then(() => refresh())
