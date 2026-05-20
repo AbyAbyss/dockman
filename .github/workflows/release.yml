@@ -1,0 +1,99 @@
+name: Release
+
+# Builds downloadable installers for macOS, Windows and Linux and publishes
+# them to a GitHub Release.
+#
+# How to cut a release:
+#   1. Bump the version in package.json, src-tauri/Cargo.toml and
+#      src-tauri/tauri.conf.json (keep all three in sync).
+#   2. Commit, then push a matching tag:  git tag v0.1.0 && git push --tags
+#   3. This workflow builds every platform and creates a DRAFT release.
+#   4. Open the draft on GitHub, review the assets, and click "Publish".
+#
+# It can also be run manually from the Actions tab (run it from a tag).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — Apple Silicon (M-series)
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          # macOS — Intel
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          # Linux — x64
+          - platform: ubuntu-22.04
+            args: ''
+          # Windows — x64
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Install both macOS targets so the Intel build can cross-compile
+          # on the Apple Silicon runner.
+          targets: ${{ contains(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Use the pushed tag; fall back to the app version for manual runs.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseName: Dockman ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseBody: |
+            Download the installer for your platform from the assets below.
+
+            - **macOS** — `.dmg` (separate Apple Silicon and Intel builds)
+            - **Windows** — `.msi` or `.exe` installer
+            - **Linux** — `.AppImage` or `.deb`
+
+            These builds are unsigned. On first launch:
+            - **macOS** — right-click the app → **Open**, then confirm.
+            - **Windows** — on the SmartScreen prompt, choose **More info → Run anyway**.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
