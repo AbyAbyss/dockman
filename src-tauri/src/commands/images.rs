@@ -23,6 +23,9 @@ pub async fn remove_image(runtime: String, id: String, force: bool) -> Result<()
 #[tauri::command]
 pub async fn pull_image(runtime: String, image: String) -> Result<(), String> {
     let bin = super::resolve(&runtime)?;
+    if runtime == "docker" {
+        let _ = super::ensure_docker_helpers();
+    }
     super::run(&bin, &["pull", &image]).map(|_| ())
 }
 

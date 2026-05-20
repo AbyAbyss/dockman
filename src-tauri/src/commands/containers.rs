@@ -120,6 +120,10 @@ pub async fn run_container(
     detach: bool,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
+    if runtime == "docker" {
+        // Registry pulls need the credential helper the standalone CLI omits.
+        let _ = super::ensure_docker_helpers();
+    }
     let mut args: Vec<String> = vec!["run".into()];
     if detach {
         args.push("-d".into());

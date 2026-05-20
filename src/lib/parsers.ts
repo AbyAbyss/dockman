@@ -118,7 +118,7 @@ export function parseImage(rt: RuntimeName, o: Raw): ImageItem {
   const size =
     typeof o.Size === 'number' ? formatBytes(o.Size) : str(o, 'Size') || '—';
   return {
-    id: str(o, 'ID', 'Id').slice(0, 19) || str(o, 'ID', 'Id'),
+    id: str(o, 'ID', 'Id').replace(/^sha256:/, '').slice(0, 19),
     rt,
     name: name || '<none>',
     tag: tag || 'latest',

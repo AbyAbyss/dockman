@@ -1671,3 +1671,156 @@
   display: grid; place-items: center;
   background: var(--accent); color: var(--bg);
 }
+
+/* ─── LaunchCard — animated container scaffolding loader ───────────────────── */
+.launch-card {
+  --lc-accent: var(--accent);
+  --lc-soft: var(--accent-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 30px 18px 26px;
+  text-align: center;
+  animation: stage-in 0.25s ease-out;
+}
+.launch-card[data-rt="docker"] {
+  --lc-accent: var(--rt-docker);
+  --lc-soft: var(--rt-docker-soft);
+}
+.launch-card[data-rt="podman"] {
+  --lc-accent: var(--rt-podman);
+  --lc-soft: var(--rt-podman-soft);
+}
+
+/* Visualization — wireframe cube drawing itself in, ringed by pulse waves. */
+.launch-viz {
+  position: relative;
+  width: 88px; height: 88px;
+  display: grid; place-items: center;
+}
+.launch-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--lc-accent);
+  opacity: 0;
+  animation: lc-ring 2.6s ease-out infinite;
+}
+.launch-ring-2 { animation-delay: 1.3s; }
+@keyframes lc-ring {
+  0%   { transform: scale(0.42); opacity: 0.5; }
+  70%  { opacity: 0; }
+  100% { transform: scale(1.05); opacity: 0; }
+}
+.launch-cube {
+  width: 54px; height: 54px;
+  overflow: visible;
+  fill: none;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 9px var(--lc-soft));
+}
+.launch-cube-ghost { stroke: var(--line); }
+.launch-cube-draw {
+  stroke: var(--lc-accent);
+  stroke-dasharray: 100;
+  animation: lc-draw 2.4s ease-in-out infinite;
+}
+@keyframes lc-draw {
+  0%   { stroke-dashoffset: 100; }
+  50%  { stroke-dashoffset: 0; }
+  68%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -100; }
+}
+
+/* Heading */
+.launch-head { display: flex; flex-direction: column; gap: 3px; }
+.launch-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.launch-sub { font-size: 10.5px; color: var(--dim); }
+
+/* Indeterminate progress track */
+.launch-track {
+  position: relative;
+  width: 168px; max-width: 78%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--subtle);
+  overflow: hidden;
+}
+.launch-track-fill {
+  position: absolute; top: 0;
+  height: 100%; width: 42%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--lc-accent), transparent);
+  animation: lc-slide 1.3s ease-in-out infinite;
+}
+@keyframes lc-slide {
+  0%   { left: -45%; }
+  100% { left: 100%; }
+}
+
+/* Cycling status line */
+.launch-status {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 10.5px; color: var(--dim);
+}
+.launch-dots { display: inline-flex; gap: 3px; }
+.launch-dots i {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--lc-accent);
+  animation: lc-bounce 1s ease-in-out infinite;
+}
+.launch-dots i:nth-child(2) { animation-delay: 0.15s; }
+.launch-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes lc-bounce {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1; transform: translateY(-3px); }
+}
+
+/* Shimmer skeleton — a ghost of the container row about to appear */
+.launch-skel {
+  display: flex; align-items: center; gap: 10px;
+  width: 224px; max-width: 100%;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.skel-pic, .skel-bar, .skel-pill {
+  background: linear-gradient(
+    90deg,
+    var(--subtle) 25%,
+    color-mix(in oklab, var(--line) 75%, var(--dim) 25%) 37%,
+    var(--subtle) 63%
+  );
+  background-size: 280% 100%;
+  animation: lc-shimmer 1.5s linear infinite;
+  border-radius: 6px;
+}
+.skel-pic { width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0; }
+.skel-lines { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.skel-bar { height: 7px; border-radius: 999px; }
+.skel-bar-sm { width: 56%; height: 6px; }
+.skel-pill { width: 40px; height: 14px; border-radius: 999px; flex-shrink: 0; }
+@keyframes lc-shimmer {
+  0%   { background-position: 140% 0; }
+  100% { background-position: -140% 0; }
+}
+
+/* Respect reduced-motion: keep the card legible, drop the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .launch-card,
+  .launch-ring,
+  .launch-cube-draw,
+  .launch-track-fill,
+  .launch-dots i,
+  .skel-pic, .skel-bar, .skel-pill {
+    animation: none;
+  }
+  .launch-ring { display: none; }
+  .launch-cube-draw { stroke-dashoffset: 0; }
+  .launch-track-fill { left: 0; width: 100%; opacity: 0.55; }
+}

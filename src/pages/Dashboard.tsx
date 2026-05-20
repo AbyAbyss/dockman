@@ -7,10 +7,11 @@ import { StatTile } from '@/components/ui/StatTile';
 import { Glyph, type IconName } from '@/components/ui/Icon';
 import { Sparkline, Ring } from '@/components/ui/Charts';
 import { RuntimeBadge } from '@/components/ui/Runtime';
+import { LaunchCard } from '@/components/ui/LaunchCard';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
 import { useImages, useNetworks, useRuntimes, useVolumes } from '@/hooks/useData';
-import { RuntimeCommands } from '@/lib/commands';
+import { ContainerCommands, RuntimeCommands } from '@/lib/commands';
 import { ACTIVITY, CPU_SPARK, MEM_SPARK } from '@/data/seed';
 import type {
   Container,
@@ -185,7 +186,10 @@ const STACK_ICONS: Record<string, IconName> = {
 
 function RunningStackCard({ containers, query }: { containers: Container[]; query: string }) {
   const toggleRunPause = useAppStore((s) => s.toggleRunPause);
+  const refresh = useAppStore((s) => s.refresh);
+  const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const navigate = useNavigate();
+  const [launching, setLaunching] = useState<RuntimeName | null>(null);
   const filtered = containers
     .filter((c) => c.status !== 'stopped')
     .filter(
@@ -194,6 +198,58 @@ function RunningStackCard({ containers, query }: { containers: Container[]; quer
         c.name.toLowerCase().includes(query.toLowerCase()) ||
         c.image.toLowerCase().includes(query.toLowerCase()),
     );
+
+  // Run the canonical hello-world image — a quick "does my runtime work" check.
+  const runHello = (rt: RuntimeName) => {
+    setLaunching(rt);
+    ContainerCommands.run(rt, {
+      image: 'docker.io/library/hello-world',
+      ports: [],
+      env: [],
+      volumes: [],
+      detach: true,
+    })
+      .then(() => refresh())
+      .catch(() => undefined)
+      .finally(() => setLaunching(null));
+  };
+
+  if (containers.length === 0) {
+    return (
+      <BentoCard section="Live" sectionIcon="bolt" title="Active Stack" span={4}>
+        {launching ? (
+          <LaunchCard rt={launching} />
+        ) : (
+        <div className="empty" style={{ padding: '24px 8px' }}>
+          <Glyph name="container" size={22} />
+          <div>No containers yet — run a test image to check things work.</div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+            }}
+          >
+            {(runtimeFilter === 'all'
+              ? (['docker', 'podman'] as RuntimeName[])
+              : [runtimeFilter]
+            ).map((rt) => (
+              <button
+                key={rt}
+                className="action-btn"
+                type="button"
+                onClick={() => runHello(rt)}
+              >
+                <Glyph name="play" size={12} /> hello-world · {rt}
+              </button>
+            ))}
+          </div>
+        </div>
+        )}
+      </BentoCard>
+    );
+  }
 
   return (
     <BentoCard section="Live" sectionIcon="bolt" title="Active Stack" span={4}>

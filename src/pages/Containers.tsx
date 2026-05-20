@@ -7,10 +7,11 @@ import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
 import { RuntimeBadge } from '@/components/ui/Runtime';
+import { LaunchCard } from '@/components/ui/LaunchCard';
 import { useAppStore } from '@/store/appStore';
 import { ContainerCommands, containerLogsEvent, execOutputEvent } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
-import type { Container, ContainerStatus } from '@/types';
+import type { Container, ContainerStatus, RuntimeName } from '@/types';
 
 type StatusFilter = 'all' | ContainerStatus;
 type GroupBy = 'flat' | 'stack' | 'image' | 'tag';
@@ -299,6 +300,23 @@ export default function Containers() {
   const startAllStopped = useAppStore((s) => s.startAllStopped);
   const startStack = useAppStore((s) => s.startStack);
   const stopStack = useAppStore((s) => s.stopStack);
+  const refresh = useAppStore((s) => s.refresh);
+  const [launching, setLaunching] = useState<RuntimeName | null>(null);
+
+  // Run the canonical hello-world image — a quick "does my runtime work" test.
+  const runHello = (rt: RuntimeName) => {
+    setLaunching(rt);
+    ContainerCommands.run(rt, {
+      image: 'docker.io/library/hello-world',
+      ports: [],
+      env: [],
+      volumes: [],
+      detach: true,
+    })
+      .then(() => refresh())
+      .catch(() => undefined)
+      .finally(() => setLaunching(null));
+  };
 
   const containers =
     runtimeFilter === 'all'
@@ -515,22 +533,48 @@ export default function Containers() {
             </Fragment>
           ))}
 
-          {filtered.length === 0 && (
+          {filtered.length === 0 &&
+            (launching ? (
+              <LaunchCard rt={launching} />
+            ) : (
             <div className="empty">
               <Glyph name="container" size={24} />
-              <div>No containers match this filter.</div>
-              <button
-                className="action-btn"
-                type="button"
-                onClick={() => {
-                  setFilter('all');
-                  setQuery('');
-                }}
-              >
-                Clear filters
-              </button>
+              {containers.length === 0 ? (
+                <>
+                  <div>No containers yet — run a test image to check your runtime.</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {(runtimeFilter === 'all'
+                      ? (['docker', 'podman'] as RuntimeName[])
+                      : [runtimeFilter]
+                    ).map((rt) => (
+                      <button
+                        key={rt}
+                        className="action-btn"
+                        type="button"
+                        onClick={() => runHello(rt)}
+                      >
+                        <Glyph name="play" size={12} /> Run hello-world on {rt}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>No containers match this filter.</div>
+                  <button
+                    className="action-btn"
+                    type="button"
+                    onClick={() => {
+                      setFilter('all');
+                      setQuery('');
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                </>
+              )}
             </div>
-          )}
+            ))}
         </div>
       </BentoCard>
 

@@ -83,7 +83,7 @@ pub async fn detect_runtime(runtime: String) -> Result<RuntimeInfo, String> {
     let version = super::run(&path, &["version", "--format", "{{.Client.Version}}"])
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    let is_running = super::run(&path, &["info", "--format", "{{.ID}}"]).is_ok();
+    let is_running = super::run(&path, &["info"]).is_ok();
     let compose_available = super::run(&path, &["compose", "version"]).is_ok();
 
     Ok(RuntimeInfo {
@@ -237,6 +237,8 @@ pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
             }
         }
         "docker" => {
+            // The standalone CLI omits the registry credential helper — fetch it.
+            let _ = super::ensure_docker_helpers();
             // macOS has no native Docker daemon — `dockerd` is Linux-only, so a
             // Docker engine is always a Linux VM. First launch a desktop engine
             // app if one is installed (OrbStack / Docker Desktop / Rancher).
@@ -333,7 +335,7 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
         String::new()
     };
     let engine_running =
-        cli_installed && super::run(&bin, &["info", "--format", "{{.ID}}"]).is_ok();
+        cli_installed && super::run(&bin, &["info"]).is_ok();
 
     let mut helpers_ready = false;
     let mut machine_exists = false;
@@ -353,12 +355,21 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
                 .unwrap_or(false);
         }
     } else if runtime == "docker" {
-        if std::path::Path::new("/Applications/OrbStack.app").exists() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let app_exists = |name: &str| {
+            std::path::Path::new(&format!("/Applications/{name}.app")).exists()
+                || std::path::Path::new(&format!("{home}/Applications/{name}.app"))
+                    .exists()
+        };
+        if app_exists("OrbStack") {
             engine_app = "OrbStack".to_string();
-        } else if std::path::Path::new("/Applications/Docker.app").exists() {
+        } else if app_exists("Docker") {
             engine_app = "Docker Desktop".to_string();
         } else if super::which_optional("colima").is_some() {
             engine_app = "Colima".to_string();
+        } else if engine_running {
+            // Engine is reachable but provided by something we don't recognise.
+            engine_app = "running".to_string();
         }
     }
 

@@ -90,6 +90,20 @@ async function fanOut<T>(
   return lists.flat();
 }
 
+/** Drop duplicates — when Docker and Podman share an engine (e.g. OrbStack)
+ *  the same object is reported by both CLIs. */
+function dedupeBy<T>(items: T[], key: (x: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const k = key(item);
+    if (k && seen.has(k)) continue;
+    if (k) seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
 // ─── Event names ─────────────────────────────────────────────────────────────
 
 export const containerLogsEvent = (id: string) => `container-logs-${id}`;
@@ -118,11 +132,13 @@ export const RuntimeCommands = {
 // ─── Containers ──────────────────────────────────────────────────────────────
 
 export const ContainerCommands = {
-  list: (filter: RuntimeFilter): Promise<Container[]> =>
-    fanOut(filter, async (rt) => {
+  list: async (filter: RuntimeFilter): Promise<Container[]> => {
+    const all = await fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_containers', { runtime: rt, all: true });
       return raw.map((r) => parseContainer(rt, r));
-    }),
+    });
+    return dedupeBy(all, (c) => c.id);
+  },
   start: (rt: RuntimeName, id: string) =>
     invoke<void>('start_container', { runtime: rt, id }),
   stop: (rt: RuntimeName, id: string) =>
@@ -168,11 +184,13 @@ export const ContainerCommands = {
 // ─── Images ──────────────────────────────────────────────────────────────────
 
 export const ImageCommands = {
-  list: (filter: RuntimeFilter): Promise<ImageItem[]> =>
-    fanOut(filter, async (rt) => {
+  list: async (filter: RuntimeFilter): Promise<ImageItem[]> => {
+    const all = await fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_images', { runtime: rt });
       return raw.map((r) => parseImage(rt, r));
-    }),
+    });
+    return dedupeBy(all, (i) => i.id);
+  },
   remove: (rt: RuntimeName, id: string, force = true) =>
     invoke<void>('remove_image', { runtime: rt, id, force }),
   pull: (rt: RuntimeName, image: string) =>

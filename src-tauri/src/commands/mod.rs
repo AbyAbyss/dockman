@@ -55,18 +55,93 @@ pub fn shell_path() -> String {
     let mut paths: Vec<String> = std::env::var("PATH")
         .map(|p| p.split(':').map(String::from).collect())
         .unwrap_or_default();
-    for extra in [
+    let mut extras: Vec<String> = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
         "/usr/bin",
         "/bin",
         "/Applications/Docker.app/Contents/Resources/bin",
-    ] {
-        if !paths.iter().any(|p| p == extra) {
-            paths.push(extra.to_string());
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    // The directory Dockman installs binaries + helpers into.
+    if let Ok(home) = std::env::var("HOME") {
+        extras.push(format!("{home}/.local/bin"));
+    }
+    for extra in extras {
+        if !paths.iter().any(|p| p == &extra) {
+            paths.push(extra);
         }
     }
     paths.join(":")
+}
+
+/// Docker's CLI invokes a credential helper (docker-credential-osxkeychain)
+/// whenever ~/.docker/config.json sets a credsStore. The standalone CLI
+/// download doesn't include it, so fetch the official helper if it's missing.
+#[cfg(target_os = "macos")]
+pub fn ensure_docker_helpers() -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
+    let dir = std::path::PathBuf::from(&home).join(".local").join("bin");
+    let dest = dir.join("docker-credential-osxkeychain");
+    if dest.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => other,
+    };
+    let raw = run(
+        "curl",
+        &[
+            "-fsSL",
+            "-A",
+            "Dockman",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "https://api.github.com/repos/docker/docker-credential-helpers/releases/latest",
+        ],
+    )?;
+    let json: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let url = json
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name").and_then(|n| n.as_str())?.to_lowercase();
+                if name.contains("osxkeychain")
+                    && name.contains("darwin")
+                    && name.contains(arch)
+                    && !name.ends_with(".sha256")
+                    && !name.ends_with(".tar.gz")
+                    && !name.ends_with(".zip")
+                {
+                    asset
+                        .get("browser_download_url")
+                        .and_then(|u| u.as_str())
+                        .map(String::from)
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or_else(|| "credential helper asset not found".to_string())?;
+
+    let dest_s = dest.to_string_lossy().into_owned();
+    run("curl", &["-fSL", &url, "-o", &dest_s])
+        .map_err(|e| format!("could not download credential helper: {e}"))?;
+    let _ = run("chmod", &["+x", &dest_s]);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn ensure_docker_helpers() -> Result<(), String> {
+    Ok(())
 }
 
 /// Resolve a runtime name ("docker" / "podman") to an absolute binary path.
