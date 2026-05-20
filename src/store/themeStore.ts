@@ -1,0 +1,69 @@
+// Theme + layout preferences, persisted to localStorage.
+// Mirrors the design prototype's "tweaks" — palette, accent, geometry and the
+// tab-bar layout — but exposed as a typed Zustand store instead of an
+// EDITMODE block.
+
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { AccentName, PaletteName, TabKey, TabPosition } from '@/types';
+
+export const PALETTES: Record<
+  PaletteName,
+  { bg: string; surface: string; text: string; dim: string; line: string; subtle: string; tint: string }
+> = {
+  ink:   { bg: '#0d0c0a', surface: '#1f1c17', text: '#ece6d6', dim: '#8a8473', line: 'rgba(236,230,214,0.13)', subtle: 'rgba(236,230,214,0.07)', tint: 'rgba(236,230,214,0.025)' },
+  paper: { bg: '#ebe6db', surface: '#fbf8f1', text: '#1d1b16', dim: '#7a7464', line: 'rgba(29,27,22,0.10)',    subtle: 'rgba(29,27,22,0.04)',     tint: 'rgba(29,27,22,0.02)' },
+  slate: { bg: '#0d1117', surface: '#161b22', text: '#e6edf3', dim: '#7d8590', line: 'rgba(230,237,243,0.10)', subtle: 'rgba(230,237,243,0.05)', tint: 'rgba(230,237,243,0.02)' },
+};
+
+export const ACCENTS: Record<AccentName, { hex: string; soft: string }> = {
+  violet:     { hex: '#a78bfa', soft: 'rgba(167,139,250,0.16)' },
+  olive:      { hex: '#a5b950', soft: 'rgba(165,185,80,0.16)' },
+  terracotta: { hex: '#d97757', soft: 'rgba(217,119,87,0.16)' },
+  cobalt:     { hex: '#6aa5ff', soft: 'rgba(106,165,255,0.18)' },
+};
+
+interface ThemeState {
+  palette: PaletteName;
+  accent: AccentName;
+  gap: number;
+  radius: number;
+  tabPosition: TabPosition;
+  tabCollapsed: boolean;
+  defaultTab: TabKey;
+  m1Fallback: boolean;
+
+  setPalette: (p: PaletteName) => void;
+  setAccent: (a: AccentName) => void;
+  setGap: (g: number) => void;
+  setRadius: (r: number) => void;
+  setTabPosition: (p: TabPosition) => void;
+  setTabCollapsed: (c: boolean) => void;
+  setDefaultTab: (t: TabKey) => void;
+  setM1Fallback: (v: boolean) => void;
+}
+
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set) => ({
+      palette: 'ink',
+      accent: 'violet',
+      gap: 14,
+      radius: 18,
+      tabPosition: 'top',
+      tabCollapsed: false,
+      defaultTab: 'overview',
+      m1Fallback: true,
+
+      setPalette: (palette) => set({ palette }),
+      setAccent: (accent) => set({ accent }),
+      setGap: (gap) => set({ gap }),
+      setRadius: (radius) => set({ radius }),
+      setTabPosition: (tabPosition) => set({ tabPosition }),
+      setTabCollapsed: (tabCollapsed) => set({ tabCollapsed }),
+      setDefaultTab: (defaultTab) => set({ defaultTab }),
+      setM1Fallback: (m1Fallback) => set({ m1Fallback }),
+    }),
+    { name: 'dockman-theme' },
+  ),
+);
