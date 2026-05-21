@@ -698,14 +698,27 @@
   }
 
   .ctr-detail {
-    display: grid; grid-template-columns: 1.4fr 1fr 1fr;
-    gap: 16px;
+    display: flex; flex-direction: column;
+    gap: 14px;
     padding: 14px 18px 18px;
     background: var(--bg);
     border-bottom: 0.5px solid var(--line);
   }
+  .det-config { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .det-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .det-label, .det-col .bc-section { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+  .logs-panel { display: flex; flex-direction: column; gap: 6px; }
+  .logs-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .logs-toggles { display: flex; gap: 6px; }
+  .logs-toggle {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px; border-radius: 6px;
+    border: 0.5px solid var(--line); color: var(--dim);
+    transition: color .1s, border-color .1s, background .1s;
+  }
+  .logs-toggle:hover { color: var(--text); border-color: var(--accent); }
+  .logs-toggle.is-on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .logs {
     margin: 0; font-family: var(--mono); font-size: 10.5px;
     background: var(--surface);
@@ -713,8 +726,9 @@
     border-radius: 8px;
     padding: 10px 12px;
     color: var(--text);
-    overflow: auto; max-height: 132px; line-height: 1.55;
+    overflow: auto; min-height: 200px; max-height: 360px; line-height: 1.55;
   }
+  .logs.is-wrap { white-space: pre-wrap; word-break: break-word; }
   .logs div { color: var(--dim); }
   .logs div:last-child { color: var(--text); }
   .kv { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; }
@@ -1592,7 +1606,7 @@
     .feat-grid, .appearance-grid { grid-template-columns: 1fr; }
     .ctable .cth, .ctable .ctr-row { grid-template-columns: 1.4fr 1fr 0.8fr 0.8fr; gap: 8px; }
     .ctable .cth > div:nth-child(n+5), .ctable .ctr-row > div:nth-child(n+5) { display: none; }
-    .ctr-detail { grid-template-columns: 1fr; }
+    .det-config { grid-template-columns: 1fr; }
   }
   @media (max-width: 720px) {
     .stat-trio, .stat-strip { grid-template-columns: 1fr; }

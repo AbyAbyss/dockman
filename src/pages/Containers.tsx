@@ -1,7 +1,7 @@
 // Containers — full management view: filterable table with expandable detail
 // rows, compose-stack grouping and exec history.
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
@@ -27,10 +27,14 @@ const EXEC_HISTORY = [
 ];
 
 /** Live-streaming log view — streams `docker logs --follow` under Tauri,
- *  shows representative sample output in the browser. */
+ *  shows representative sample output in the browser. Primary surface of the
+ *  container detail panel: full-width, with line-wrap + follow controls. */
 function ContainerLogs({ container }: { container: Container }) {
   const live = useAppStore((s) => s.live);
   const [lines, setLines] = useState<string[]>([]);
+  const [wrap, setWrap] = useState(true);
+  const [follow, setFollow] = useState(true);
+  const bodyRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     if (!live) return;
@@ -50,27 +54,54 @@ function ContainerLogs({ container }: { container: Container }) {
     };
   }, [live, container.rt, container.id]);
 
-  if (!live) {
-    return (
-      <pre className="logs">
-        <div>
-          [info] starting {container.name} ({container.image})
-        </div>
-        <div>[info] bound port {container.port}</div>
-        <div>[info] health probe OK in 312ms</div>
-        <div>[debug] connection pool · 8 idle / 0 in-use</div>
-        <div>[info] ready · accepting traffic on {container.port}</div>
-      </pre>
-    );
-  }
+  // While Follow is on, keep the newest line in view as logs stream in.
+  useEffect(() => {
+    if (follow && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [lines, follow, live]);
+
   return (
-    <pre className="logs">
-      {lines.length === 0 ? (
-        <div>streaming logs…</div>
-      ) : (
-        lines.map((l, i) => <div key={i}>{l}</div>)
-      )}
-    </pre>
+    <div className="logs-panel">
+      <div className="logs-toolbar">
+        <div className="det-label">Logs · live</div>
+        <div className="logs-toggles">
+          <button
+            type="button"
+            className={`logs-toggle ${wrap ? 'is-on' : ''}`}
+            title="Wrap long log lines"
+            onClick={() => setWrap((w) => !w)}
+          >
+            Wrap
+          </button>
+          <button
+            type="button"
+            className={`logs-toggle ${follow ? 'is-on' : ''}`}
+            title="Auto-scroll to newest line"
+            onClick={() => setFollow((f) => !f)}
+          >
+            Follow
+          </button>
+        </div>
+      </div>
+      <pre ref={bodyRef} className={`logs ${wrap ? 'is-wrap' : ''}`}>
+        {!live ? (
+          <>
+            <div>
+              [info] starting {container.name} ({container.image})
+            </div>
+            <div>[info] bound port {container.port}</div>
+            <div>[info] health probe OK in 312ms</div>
+            <div>[debug] connection pool · 8 idle / 0 in-use</div>
+            <div>[info] ready · accepting traffic on {container.port}</div>
+          </>
+        ) : lines.length === 0 ? (
+          <div>streaming logs…</div>
+        ) : (
+          lines.map((l, i) => <div key={i}>{l}</div>)
+        )}
+      </pre>
+    </div>
   );
 }
 
@@ -147,12 +178,8 @@ function ContainerDetail({
   const running = container.status === 'running';
 
   return (
-    <>
-      <div className="ctr-detail">
-        <div className="det-col">
-          <div className="det-label">Logs · live</div>
-          <ContainerLogs container={container} />
-        </div>
+    <div className="ctr-detail">
+      <div className="det-config">
         <div className="det-col">
           <div className="det-label">
             Environment{live && envRows.length ? ` · ${envRows.length}` : ''}
@@ -210,7 +237,8 @@ function ContainerDetail({
           </div>
         </div>
       </div>
-    </>
+      <ContainerLogs container={container} />
+    </div>
   );
 }
 
