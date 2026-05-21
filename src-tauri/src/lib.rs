@@ -46,6 +46,7 @@ pub fn run() {
             containers::inspect_container,
             containers::get_container_env,
             containers::run_container,
+            containers::update_container,
             containers::get_container_logs,
             containers::stop_container_logs,
             containers::get_container_stats,
@@ -80,11 +81,13 @@ pub fn run() {
             networks::inspect_network,
             // compose
             compose::list_compose_projects,
+            compose::compose_services,
             compose::compose_up,
             compose::compose_down,
             compose::compose_restart,
             compose::compose_logs,
             compose::open_compose_file,
+            compose::pick_compose_file,
             // builds
             builds::list_builds,
             builds::get_build,

@@ -57,6 +57,11 @@ export interface RunContainerConfig {
   /** Optional command / args override, appended after the image. */
   command: string[];
   detach: boolean;
+  /** Optional resource limits — an omitted field leaves the runtime default. */
+  memory?: string;
+  memorySwap?: string;
+  cpus?: string;
+  storageSize?: string;
 }
 
 export interface NewBuildConfig {
@@ -155,6 +160,15 @@ export const ContainerCommands = {
     invoke<void>('remove_container', { runtime: rt, id, force }),
   run: (rt: RuntimeName, cfg: RunContainerConfig) =>
     invoke<string>('run_container', { runtime: rt, ...cfg }),
+  /** Adjust a container's memory / CPU limits via `<runtime> update`. */
+  update: (
+    rt: RuntimeName,
+    id: string,
+    memory?: string,
+    memorySwap?: string,
+    cpus?: string,
+  ) =>
+    invoke<void>('update_container', { runtime: rt, id, memory, memorySwap, cpus }),
   inspect: (rt: RuntimeName, id: string) =>
     invoke<unknown>('inspect_container', { runtime: rt, id }),
   /** Snapshot of cpu/mem for running containers, keyed by id and by name. */
@@ -227,6 +241,43 @@ export const NetworkCommands = {
       const raw = await invoke<Raw[]>('list_networks', { runtime: rt });
       return raw.map((r) => parseNetwork(rt, r));
     }),
+};
+
+// ─── Compose ─────────────────────────────────────────────────────────────────
+
+export interface ComposeProject {
+  name: string;
+  status: string;
+  configFile: string;
+}
+
+export const ComposeCommands = {
+  /** Native file picker for a compose file; resolves to null if cancelled. */
+  pickFile: () => invoke<string | null>('pick_compose_file'),
+  /** Service names declared in a compose file. Throws when the runtime has no
+   *  working compose provider — also used as an availability probe. */
+  services: (rt: RuntimeName, composeFile: string) =>
+    invoke<string[]>('compose_services', { runtime: rt, composeFile }),
+  /** Bring a compose project up. Streams `compose-output`; ends with a
+   *  `compose-done` event. `scale` entries are `service=count` strings. */
+  up: (rt: RuntimeName, composeFile: string, detach = true, scale: string[] = []) =>
+    invoke<void>('compose_up', { runtime: rt, composeFile, detach, scale }),
+  /** Stop and remove a compose project's containers. */
+  down: (rt: RuntimeName, composeFile: string) =>
+    invoke<void>('compose_down', { runtime: rt, composeFile, removeVolumes: false }),
+  /** Running compose projects with their config-file paths. */
+  list: async (rt: RuntimeName): Promise<ComposeProject[]> => {
+    const raw = await invoke<Array<Record<string, unknown>>>('list_compose_projects', {
+      runtime: rt,
+    });
+    return raw.map((p) => ({
+      name: String(p.Name ?? p.name ?? ''),
+      status: String(p.Status ?? p.status ?? ''),
+      configFile: String(p.ConfigFiles ?? p.configFiles ?? '')
+        .split(',')[0]
+        .trim(),
+    }));
+  },
 };
 
 // ─── Builds ──────────────────────────────────────────────────────────────────

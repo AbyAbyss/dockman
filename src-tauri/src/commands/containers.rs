@@ -119,6 +119,10 @@ pub async fn run_container(
     volumes: Vec<String>,
     command: Vec<String>,
     detach: bool,
+    memory: Option<String>,
+    memory_swap: Option<String>,
+    cpus: Option<String>,
+    storage_size: Option<String>,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
     if runtime == "docker" {
@@ -147,6 +151,24 @@ pub async fn run_container(
         args.push("-v".into());
         args.push(v);
     }
+    // Optional resource limits — each flag is added only when its field is set,
+    // so an untouched form leaves the container on the runtime defaults.
+    if let Some(m) = memory.filter(|s| !s.is_empty()) {
+        args.push("--memory".into());
+        args.push(m);
+    }
+    if let Some(ms) = memory_swap.filter(|s| !s.is_empty()) {
+        args.push("--memory-swap".into());
+        args.push(ms);
+    }
+    if let Some(c) = cpus.filter(|s| !s.is_empty()) {
+        args.push("--cpus".into());
+        args.push(c);
+    }
+    if let Some(sz) = storage_size.filter(|s| !s.is_empty()) {
+        args.push("--storage-opt".into());
+        args.push(format!("size={sz}"));
+    }
     args.push(image);
     // An optional command / args override, appended after the image — also
     // covers one-off "run a command on an image" use.
@@ -155,6 +177,39 @@ pub async fn run_container(
     }
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     super::run(&bin, &arg_refs).map(|s| s.trim().to_string())
+}
+
+/// Update a container's memory / CPU limits via `{runtime} update`. These can
+/// change on a stopped or running container; disk size cannot be updated.
+#[tauri::command]
+pub async fn update_container(
+    runtime: String,
+    id: String,
+    memory: Option<String>,
+    memory_swap: Option<String>,
+    cpus: Option<String>,
+) -> Result<(), String> {
+    let bin = super::resolve(&runtime)?;
+    let mut args: Vec<String> = vec!["update".into()];
+    if let Some(m) = memory.filter(|s| !s.is_empty()) {
+        args.push("--memory".into());
+        args.push(m);
+    }
+    if let Some(ms) = memory_swap.filter(|s| !s.is_empty()) {
+        args.push("--memory-swap".into());
+        args.push(ms);
+    }
+    if let Some(c) = cpus.filter(|s| !s.is_empty()) {
+        args.push("--cpus".into());
+        args.push(c);
+    }
+    // No flags supplied → nothing to do (a bare `update` would error).
+    if args.len() == 1 {
+        return Ok(());
+    }
+    args.push(id);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    super::run(&bin, &arg_refs).map(|_| ())
 }
 
 // ─── Streaming logs ──────────────────────────────────────────────────────────

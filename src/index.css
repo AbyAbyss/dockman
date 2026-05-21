@@ -688,6 +688,7 @@
     transition: background .1s, color .1s;
   }
   .iconbtn:hover { background: var(--bg); color: var(--text); }
+  .iconbtn:disabled { opacity: 0.3; pointer-events: none; }
   .iconbtn.danger:hover { color: var(--bad); }
 
   .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -764,6 +765,28 @@
     font-size: 11px;
   }
   .stack-card-foot { display: flex; gap: 12px; padding-top: 6px; border-top: 0.5px dashed var(--line); }
+  /* Per-service scaling controls on compose-backed stack cards */
+  .svc-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+  .svc-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 9px;
+    background: var(--surface);
+    border: 0.5px solid var(--line);
+    border-radius: 8px;
+  }
+  .svc-name { font-size: 11.5px; color: var(--text); flex: 1; min-width: 0; }
+  .svc-count-label { font-size: 10.5px; color: var(--dim); }
+  .svc-stepper {
+    display: flex; align-items: center; gap: 2px;
+    background: var(--bg);
+    border: 0.5px solid var(--line);
+    border-radius: 7px;
+    padding: 2px;
+  }
+  .svc-count {
+    min-width: 22px; text-align: center;
+    font-size: 11.5px; color: var(--text);
+  }
 
   /* Exec history */
   .exec-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1753,6 +1776,7 @@
 /* Heading */
 .launch-head { display: flex; flex-direction: column; gap: 3px; }
 .launch-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.launch-note { font-size: 10px; color: var(--accent); }
 .launch-sub { font-size: 10.5px; color: var(--dim); }
 
 /* Indeterminate progress track */
@@ -1868,6 +1892,98 @@
 }
 .modal-panel.rcm { max-width: 540px; }
 .modal-panel.exec-modal { max-width: 680px; }
+.modal-panel.clm { max-width: 560px; }
+.modal-panel.crm { max-width: 470px; }
+.crm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* ─── Compose launch modal ────────────────────────────────────────────────── */
+.clm-body { display: flex; flex-direction: column; gap: 14px; }
+.clm-probing {
+  display: flex; align-items: center; gap: 10px;
+  padding: 20px 4px;
+  font-size: 12px; color: var(--dim);
+}
+.clm-error {
+  font-size: 11.5px; color: var(--bad);
+  background: rgba(224, 122, 95, 0.08);
+  border: 0.5px solid rgba(224, 122, 95, 0.3);
+  border-radius: 9px;
+  padding: 12px 13px;
+  white-space: pre-wrap; word-break: break-word;
+  line-height: 1.55;
+}
+.clm-spin {
+  flex: none;
+  width: 14px; height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: clm-spin 0.7s linear infinite;
+}
+@keyframes clm-spin { to { transform: rotate(360deg); } }
+.clm-progress { display: flex; align-items: center; gap: 10px; }
+.clm-progress-track {
+  flex: 1; height: 5px;
+  background: var(--bg);
+  border-radius: 3px; overflow: hidden;
+}
+.clm-progress-fill {
+  display: block; height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.clm-progress-count { font-size: 11px; color: var(--dim); }
+.clm-svcs { display: flex; flex-direction: column; gap: 8px; }
+.clm-svc {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px;
+  background: var(--bg);
+  border: 0.5px solid var(--line);
+  border-radius: 11px;
+  transition: border-color 0.15s;
+}
+.clm-svc.is-pulling,
+.clm-svc.is-creating,
+.clm-svc.is-starting { border-color: var(--accent); }
+.clm-svc.is-failed { border-color: rgba(224, 122, 95, 0.45); }
+.clm-svc-icon {
+  width: 22px; height: 22px; flex: none;
+  display: grid; place-items: center;
+}
+.clm-svc.is-running .clm-svc-icon { color: var(--accent); }
+.clm-svc.is-failed .clm-svc-icon { color: var(--bad); }
+.clm-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+}
+.clm-svc-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--text); }
+.clm-svc-status { font-size: 11px; color: var(--dim); }
+.clm-svc.is-failed .clm-svc-status { color: var(--bad); }
+.clm-logtoggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--dim);
+  align-self: flex-start;
+  padding: 2px 0;
+}
+.clm-logtoggle:hover { color: var(--text); }
+.clm-chev { display: flex; transition: transform 0.12s; }
+.clm-chev.is-open { transform: rotate(90deg); }
+.clm-log {
+  margin: 0;
+  font-family: var(--mono); font-size: 10px; line-height: 1.55;
+  color: var(--dim);
+  background: var(--bg);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  max-height: 180px; overflow: auto;
+}
+.clm-log div { white-space: pre-wrap; word-break: break-word; }
+.clm-result { font-size: 11.5px; margin-right: auto; align-self: center; }
+.clm-result.is-ok { color: var(--accent); }
+.clm-result.is-bad { color: var(--bad); }
 
 .modal-head {
   display: flex;
@@ -2031,6 +2147,31 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Port caption row — labels External vs Internal once, column-aligned. */
+.rcm-pair-caps { margin-bottom: -2px; }
+.rcm-pair-cap { font-size: 10px; color: var(--dim); line-height: 1; }
+
+/* Collapsible Resource limits section. */
+.rcm-collapse {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+}
+.rcm-collapse-chv {
+  display: flex;
+  color: var(--dim);
+  transition: transform 0.12s, color 0.12s;
+}
+.rcm-collapse-chv.is-open { transform: rotate(90deg); }
+.rcm-collapse:hover .rcm-collapse-chv { color: var(--text); }
+.rcm-collapse-hint { margin-left: auto; font-size: 11px; color: var(--dim); }
+.rcm-limits { display: flex; flex-direction: column; gap: 10px; }
+.rcm-limits-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rcm-limit { display: flex; flex-direction: column; gap: 6px; }
+.rcm-limits-note { font-size: 11px; color: var(--dim); line-height: 1.5; }
 
 /* ─── Exec modal — terminal ───────────────────────────────────────────────── */
 .exec-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }

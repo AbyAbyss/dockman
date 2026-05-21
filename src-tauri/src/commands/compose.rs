@@ -2,6 +2,9 @@
 // No separate docker-compose binary is required.
 
 use super::Registry;
+use std::io::BufRead;
+use tauri::Emitter;
+use tauri_plugin_dialog::DialogExt;
 
 /// List discovered compose projects.
 #[tauri::command]
@@ -13,29 +16,100 @@ pub async fn list_compose_projects(
     Ok(super::parse_json_lines(&raw))
 }
 
-/// Bring a compose project up; output streams on `compose-output`.
+/// Exit status of a `compose up`, delivered on the `compose-done` event.
+#[derive(Clone, serde::Serialize)]
+struct ComposeDone {
+    success: bool,
+    code: i32,
+}
+
+/// List the service names declared in a compose file. Doubles as a probe — it
+/// fails when the runtime has no working `compose` provider.
+#[tauri::command]
+pub async fn compose_services(
+    runtime: String,
+    compose_file: String,
+) -> Result<Vec<String>, String> {
+    let bin = super::resolve(&runtime)?;
+    let raw = super::run(
+        &bin,
+        &["compose", "-f", &compose_file, "config", "--services"],
+    )?;
+    Ok(raw
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+/// Bring a compose project up. Every output line streams on `compose-output`;
+/// a `compose-done` event carries the exit status once the command finishes.
+/// `scale` entries are `service=count` strings passed as `--scale`.
 #[tauri::command]
 pub async fn compose_up(
     app: tauri::AppHandle,
-    registry: tauri::State<'_, Registry>,
     runtime: String,
-    project_name: String,
     compose_file: String,
     detach: bool,
+    scale: Vec<String>,
 ) -> Result<(), String> {
     let bin = super::resolve(&runtime)?;
-    let mut args: Vec<&str> = vec!["compose", "-f", &compose_file, "up"];
+    let mut args: Vec<String> =
+        vec!["compose".into(), "-f".into(), compose_file, "up".into()];
     if detach {
-        args.push("--detach");
+        args.push("--detach".into());
     }
-    super::spawn_streaming(
-        &app,
-        registry.inner(),
-        format!("compose-up-{project_name}"),
-        "compose-output".to_string(),
-        &bin,
-        &args,
-    )
+    for s in scale {
+        args.push("--scale".into());
+        args.push(s);
+    }
+
+    std::thread::spawn(move || {
+        let spawned = std::process::Command::new(&bin)
+            .args(&args)
+            .env("PATH", super::shell_path())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+        let mut child = match spawned {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app.emit("compose-output", format!("failed to start compose: {e}"));
+                let _ = app.emit("compose-done", ComposeDone { success: false, code: -1 });
+                return;
+            }
+        };
+
+        let mut handles = Vec::new();
+        if let Some(out) = child.stdout.take() {
+            let app = app.clone();
+            handles.push(std::thread::spawn(move || {
+                for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                    let _ = app.emit("compose-output", line);
+                }
+            }));
+        }
+        if let Some(err) = child.stderr.take() {
+            let app = app.clone();
+            handles.push(std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                    let _ = app.emit("compose-output", line);
+                }
+            }));
+        }
+
+        let status = child.wait();
+        for h in handles {
+            let _ = h.join();
+        }
+        let (success, code) = match status {
+            Ok(s) => (s.success(), s.code().unwrap_or(-1)),
+            Err(_) => (false, -1),
+        };
+        let _ = app.emit("compose-done", ComposeDone { success, code });
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -106,4 +180,16 @@ pub async fn open_compose_file(compose_file: String) -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Open a native file picker for a compose file; returns the chosen path, or
+/// `None` when the dialog is cancelled.
+#[tauri::command]
+pub async fn pick_compose_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("Compose file", &["yml", "yaml"])
+        .blocking_pick_file();
+    Ok(picked.map(|f| f.to_string()))
 }

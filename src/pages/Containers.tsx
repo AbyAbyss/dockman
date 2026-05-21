@@ -9,9 +9,11 @@ import { Pill, StatusDot } from '@/components/ui/Badge';
 import { RuntimeBadge } from '@/components/ui/Runtime';
 import { LaunchCard } from '@/components/ui/LaunchCard';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
+import { ComposeLaunchModal } from '@/components/ui/ComposeLaunchModal';
+import { ContainerResourcesModal } from '@/components/ui/ContainerResourcesModal';
 import { ExecModal } from '@/components/ui/ExecModal';
 import { useAppStore } from '@/store/appStore';
-import { ContainerCommands, containerLogsEvent } from '@/lib/commands';
+import { ContainerCommands, ComposeCommands, containerLogsEvent } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
 import type { Container, ContainerStatus, RuntimeName } from '@/types';
 
@@ -120,6 +122,13 @@ const STATIC_ENV: [string, string][] = [
   ['LOG_LEVEL', 'info'],
   ['DATABASE_URL', 'postgres://…'],
 ];
+
+/** Count containers belonging to a compose service by whole-token name match. */
+function replicaCount(items: Container[], service: string): number {
+  const esc = service.replace(/[^a-zA-Z0-9]/g, '\\$&');
+  const re = new RegExp(`(^|[^a-zA-Z0-9])${esc}([^a-zA-Z0-9]|$)`, 'i');
+  return items.filter((c) => re.test(c.name)).length;
+}
 
 /** Expanded container detail: live logs, environment, network + exec shell. */
 function ContainerDetail({
@@ -254,11 +263,88 @@ export default function Containers() {
   const startStack = useAppStore((s) => s.startStack);
   const stopStack = useAppStore((s) => s.stopStack);
   const refresh = useAppStore((s) => s.refresh);
+  const live = useAppStore((s) => s.live);
   const [launching, setLaunching] = useState<RuntimeName | null>(null);
   const [runOpen, setRunOpen] = useState(false);
   const [execTarget, setExecTarget] = useState<Container | null>(null);
+  const [resourceTarget, setResourceTarget] = useState<Container | null>(null);
+  const [composeLaunch, setComposeLaunch] = useState<{
+    filePath: string;
+    runtime?: RuntimeName;
+    scale?: string[];
+    title?: string;
+  } | null>(null);
+  const [composeStacks, setComposeStacks] = useState<
+    Record<string, { file: string; services: string[]; runtime: RuntimeName }>
+  >({});
 
   const composerRuntime: RuntimeName = runtimeFilter === 'podman' ? 'podman' : 'docker';
+
+  // Map running compose projects → their compose file + service list, so the
+  // stacks Dockman knows about gain real compose-backed scaling controls.
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    (async () => {
+      const out: Record<
+        string,
+        { file: string; services: string[]; runtime: RuntimeName }
+      > = {};
+      for (const rt of ['docker', 'podman'] as RuntimeName[]) {
+        let projects;
+        try {
+          projects = await ComposeCommands.list(rt);
+        } catch {
+          continue;
+        }
+        for (const p of projects) {
+          if (!p.name || !p.configFile) continue;
+          let services: string[] = [];
+          try {
+            services = await ComposeCommands.services(rt, p.configFile);
+          } catch {
+            // listed without a readable service set — falls back to chips
+          }
+          // `rt` is the runtime that just answered compose ls/config, so it
+          // is known to have a working compose provider — unlike the
+          // container runtime, which dedup can report as the other engine.
+          out[p.name] = { file: p.configFile, services, runtime: rt };
+        }
+      }
+      if (!cancelled) setComposeStacks(out);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [live, allContainers]);
+
+  // Pick a compose file from disk and open the animated launch view.
+  const openComposeFile = async () => {
+    try {
+      const path = await ComposeCommands.pickFile();
+      if (path) setComposeLaunch({ filePath: path });
+    } catch {
+      // the picker only exists in the desktop app; the button is disabled
+      // elsewhere, so this path is unreachable in practice
+    }
+  };
+
+  // Scale one service of a compose stack, replaying the launch animation.
+  const scaleService = (
+    stack: string,
+    file: string,
+    rt: RuntimeName,
+    service: string,
+    count: number,
+  ) => {
+    if (count < 0) return;
+    setComposeLaunch({
+      filePath: file,
+      runtime: rt,
+      scale: [`${service}=${count}`],
+      title: `Scaling ${stack}`,
+    });
+  };
 
   // Run the canonical hello-world image — a quick "does my runtime work" test.
   const runHello = (rt: RuntimeName) => {
@@ -488,6 +574,9 @@ export default function Containers() {
                           </button>
                         </>
                       )}
+                      <button className="iconbtn" type="button" title="Configure resources" onClick={() => setResourceTarget(c)}>
+                        <Glyph name="cpu" size={13} />
+                      </button>
                       <button className="iconbtn" type="button" title="Restart" onClick={() => restartContainer(c.id)}>
                         <Glyph name="restart" size={13} />
                       </button>
@@ -564,7 +653,24 @@ export default function Containers() {
         </div>
       </BentoCard>
 
-      <BentoCard section="Composition" sectionIcon="container" title="Compose Stacks" span={6} headerAlign="left">
+      <BentoCard
+        section="Composition"
+        sectionIcon="container"
+        title="Compose Stacks"
+        span={6}
+        headerAlign="left"
+        headerAside={
+          <button
+            className="action-btn"
+            type="button"
+            onClick={openComposeFile}
+            disabled={!live}
+            title={live ? undefined : 'Requires the desktop app'}
+          >
+            <Glyph name="folder" size={12} /> Open compose file
+          </button>
+        }
+      >
         <div className="stack-cards">
           {stacks.length === 0 && (
             <div className="empty">
@@ -575,6 +681,7 @@ export default function Containers() {
           {stacks.map((s) => {
             const items = containers.filter((c) => c.stack === s);
             const running = items.filter((c) => c.status === 'running').length;
+            const info = composeStacks[s];
             return (
               <div key={s} className="stack-card">
                 <div className="stack-card-h">
@@ -583,13 +690,49 @@ export default function Containers() {
                     {running}/{items.length} up
                   </Pill>
                 </div>
-                <div className="stack-card-body">
-                  {items.map((c) => (
-                    <span key={c.id} className="stack-chip">
-                      <StatusDot status={c.status} /> {c.name}
-                    </span>
-                  ))}
-                </div>
+                {info && info.services.length > 0 ? (
+                  <div className="svc-list">
+                    {info.services.map((svc) => {
+                      const n = replicaCount(items, svc);
+                      return (
+                        <div key={svc} className="svc-row">
+                          <span className="svc-name mono">{svc}</span>
+                          <span className="svc-count-label">
+                            {n} {n === 1 ? 'replica' : 'replicas'}
+                          </span>
+                          <div className="svc-stepper">
+                            <button
+                              type="button"
+                              className="iconbtn"
+                              title={`Scale ${svc} down`}
+                              disabled={n <= 0}
+                              onClick={() => scaleService(s, info.file, info.runtime, svc, n - 1)}
+                            >
+                              <Glyph name="minus" size={13} />
+                            </button>
+                            <span className="svc-count mono">{n}</span>
+                            <button
+                              type="button"
+                              className="iconbtn"
+                              title={`Scale ${svc} up`}
+                              onClick={() => scaleService(s, info.file, info.runtime, svc, n + 1)}
+                            >
+                              <Glyph name="plus" size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="stack-card-body">
+                    {items.map((c) => (
+                      <span key={c.id} className="stack-chip">
+                        <StatusDot status={c.status} /> {c.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="stack-card-foot">
                   <button className="text-btn" type="button" onClick={() => startStack(s)}>
                     start all
@@ -597,6 +740,21 @@ export default function Containers() {
                   <button className="text-btn" type="button" onClick={() => stopStack(s)}>
                     stop all
                   </button>
+                  {info && (
+                    <button
+                      className="text-btn"
+                      type="button"
+                      onClick={() =>
+                        setComposeLaunch({
+                          filePath: info.file,
+                          runtime: info.runtime,
+                          title: `Re-up ${s}`,
+                        })
+                      }
+                    >
+                      re-up
+                    </button>
+                  )}
                   <button className="text-btn" type="button">
                     logs
                   </button>
@@ -636,6 +794,24 @@ export default function Containers() {
         <ExecModal
           container={execTarget}
           onClose={() => setExecTarget(null)}
+        />
+      )}
+      {resourceTarget && (
+        <ContainerResourcesModal
+          container={resourceTarget}
+          onClose={() => setResourceTarget(null)}
+        />
+      )}
+      {composeLaunch && (
+        <ComposeLaunchModal
+          filePath={composeLaunch.filePath}
+          runtime={composeLaunch.runtime}
+          scale={composeLaunch.scale}
+          title={composeLaunch.title}
+          onClose={() => {
+            setComposeLaunch(null);
+            refresh();
+          }}
         />
       )}
     </div>

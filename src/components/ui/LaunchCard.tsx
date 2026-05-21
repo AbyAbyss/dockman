@@ -18,9 +18,12 @@ const STAGES = ['Pulling image layers', 'Creating container', 'Starting up'];
 export function LaunchCard({
   rt,
   image = 'hello-world',
+  note,
 }: {
   rt: RuntimeName;
   image?: string;
+  /** Optional second line, e.g. the resource limits being applied. */
+  note?: string;
 }) {
   const [stage, setStage] = useState(0);
 
@@ -47,6 +50,7 @@ export function LaunchCard({
       <div className="launch-head">
         <div className="launch-title">Scaffolding container</div>
         <div className="launch-sub mono">{image} · {rt}</div>
+        {note && <div className="launch-note mono">{note}</div>}
       </div>
 
       <div className="launch-track" role="progressbar" aria-label="Launching container">

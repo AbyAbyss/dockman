@@ -9,6 +9,7 @@ import { Glyph } from './Icon';
 import { LaunchCard } from './LaunchCard';
 import { RuntimeBadge } from './Runtime';
 import { ContainerCommands } from '@/lib/commands';
+import { LIMIT_PRESETS, limitSummary } from '@/lib/limits';
 import { useAppStore } from '@/store/appStore';
 import type { RuntimeName } from '@/types';
 
@@ -45,20 +46,28 @@ function pairFrom(s: string, sep = ':'): Pair {
 export function RunContainerModal({
   onClose,
   defaultRuntime,
+  defaultImage = '',
 }: {
   onClose: () => void;
   defaultRuntime: RuntimeName;
+  /** Pre-fill the image field — used when launching from the Images page. */
+  defaultImage?: string;
 }) {
   const refresh = useAppStore((s) => s.refresh);
   const live = useAppStore((s) => s.live);
 
-  const [image, setImage] = useState('');
+  const [image, setImage] = useState(defaultImage);
   const [name, setName] = useState('');
   const [rt, setRt] = useState<RuntimeName>(defaultRuntime);
   const [ports, setPorts] = useState<Pair[]>([{ ...EMPTY }]);
   const [env, setEnv] = useState<Pair[]>([{ ...EMPTY }]);
   const [volumes, setVolumes] = useState<Pair[]>([{ ...EMPTY }]);
   const [command, setCommand] = useState('');
+  const [memory, setMemory] = useState('');
+  const [memorySwap, setMemorySwap] = useState('');
+  const [cpus, setCpus] = useState('');
+  const [storageSize, setStorageSize] = useState('');
+  const [showLimits, setShowLimits] = useState(false);
   const [detach, setDetach] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +88,15 @@ export function RunContainerModal({
     setError(null);
   };
 
+  const applyLimitPreset = (p: (typeof LIMIT_PRESETS)[number]) => {
+    setMemory(p.memory);
+    setMemorySwap(p.memorySwap);
+    setCpus(p.cpus);
+  };
+  const activeLimitPreset = LIMIT_PRESETS.find(
+    (p) => p.memory === memory && p.memorySwap === memorySwap && p.cpus === cpus,
+  )?.label;
+
   const launch = () => {
     if (!image.trim() || busy) return;
     setError(null);
@@ -91,6 +109,10 @@ export function RunContainerModal({
       volumes: volumes.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
       command: command.trim() ? command.trim().split(/\s+/) : [],
       detach,
+      memory: memory.trim() || undefined,
+      memorySwap: memorySwap.trim() || undefined,
+      cpus: cpus.trim() || undefined,
+      storageSize: storageSize.trim() || undefined,
     })
       .then(() => refresh())
       .then(() => onClose())
@@ -125,7 +147,11 @@ export function RunContainerModal({
         </header>
 
         {busy ? (
-          <LaunchCard rt={rt} image={image.trim()} />
+          <LaunchCard
+            rt={rt}
+            image={image.trim()}
+            note={memory || cpus ? limitSummary(memory, cpus) : undefined}
+          />
         ) : (
           <>
             <div className="modal-body rcm-body">
@@ -189,6 +215,9 @@ export function RunContainerModal({
                 addLabel="Add port"
                 rows={ports}
                 setRows={setPorts}
+                numeric
+                captionA="External · host port"
+                captionB="Internal · container port"
               />
               <PairList
                 title="Environment"
@@ -208,6 +237,87 @@ export function RunContainerModal({
                 rows={volumes}
                 setRows={setVolumes}
               />
+
+              <div className="rcm-field">
+                <button
+                  type="button"
+                  className="rcm-collapse"
+                  onClick={() => setShowLimits((v) => !v)}
+                  aria-expanded={showLimits}
+                >
+                  <span className={`rcm-collapse-chv ${showLimits ? 'is-open' : ''}`}>
+                    <Glyph name="chevron" size={11} />
+                  </span>
+                  <span className="rcm-label">Resource limits</span>
+                  {!showLimits && (
+                    <span className="rcm-collapse-hint">
+                      {limitSummary(memory, cpus)}
+                    </span>
+                  )}
+                </button>
+                {showLimits && (
+                  <div className="rcm-limits">
+                    <div className="rcm-presets">
+                      {LIMIT_PRESETS.map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          className={`rcm-chip ${
+                            activeLimitPreset === p.label ? 'is-on' : ''
+                          }`}
+                          onClick={() => applyLimitPreset(p)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rcm-limits-grid">
+                      <div className="rcm-limit">
+                        <label className="rcm-label">Memory</label>
+                        <input
+                          className="ti mono"
+                          value={memory}
+                          onChange={(e) => setMemory(e.target.value)}
+                          placeholder="e.g. 512m"
+                        />
+                      </div>
+                      <div className="rcm-limit">
+                        <label className="rcm-label">Memory + swap</label>
+                        <input
+                          className="ti mono"
+                          value={memorySwap}
+                          onChange={(e) => setMemorySwap(e.target.value)}
+                          placeholder="e.g. 512m"
+                        />
+                      </div>
+                      <div className="rcm-limit">
+                        <label className="rcm-label">CPUs</label>
+                        <input
+                          className="ti mono"
+                          value={cpus}
+                          onChange={(e) => setCpus(e.target.value)}
+                          placeholder="e.g. 1.5"
+                        />
+                      </div>
+                      <div className="rcm-limit">
+                        <label className="rcm-label">Disk size</label>
+                        <input
+                          className="ti mono"
+                          value={storageSize}
+                          onChange={(e) => setStorageSize(e.target.value)}
+                          placeholder="e.g. 10G"
+                        />
+                      </div>
+                    </div>
+                    <div className="rcm-limits-note">
+                      Memory + swap is the total of memory plus swap — set it
+                      equal to Memory to disable swapping. Disk size needs a
+                      quota-capable storage driver and is unsupported on most
+                      default setups.
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="rcm-field">
                 <label className="rcm-label">
@@ -267,6 +377,9 @@ function PairList({
   addLabel,
   rows,
   setRows,
+  numeric = false,
+  captionA,
+  captionB,
 }: {
   title: string;
   hintA: string;
@@ -275,9 +388,20 @@ function PairList({
   addLabel: string;
   rows: Pair[];
   setRows: (rows: Pair[]) => void;
+  /** Restrict both fields to digits and hint a numeric keypad. */
+  numeric?: boolean;
+  /** Optional captions shown once, aligned under each column. */
+  captionA?: string;
+  captionB?: string;
 }) {
   const update = (i: number, key: keyof Pair, value: string) =>
-    setRows(rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
+    setRows(
+      rows.map((r, j) =>
+        j === i
+          ? { ...r, [key]: numeric ? value.replace(/[^0-9]/g, '') : value }
+          : r,
+      ),
+    );
   const add = () => setRows([...rows, { ...EMPTY }]);
   const remove = (i: number) =>
     setRows(rows.length === 1 ? [{ ...EMPTY }] : rows.filter((_, j) => j !== i));
@@ -285,6 +409,16 @@ function PairList({
   return (
     <div className="rcm-field">
       <label className="rcm-label">{title}</label>
+      {(captionA || captionB) && (
+        <div className="rcm-pair rcm-pair-caps">
+          <span className="rcm-pair-cap">{captionA}</span>
+          <span className="rcm-sep" aria-hidden="true" style={{ visibility: 'hidden' }}>
+            {sep}
+          </span>
+          <span className="rcm-pair-cap">{captionB}</span>
+          <span className="iconbtn" aria-hidden="true" />
+        </div>
+      )}
       {rows.map((r, i) => (
         <div className="rcm-pair" key={i}>
           <input
@@ -292,6 +426,7 @@ function PairList({
             value={r.a}
             onChange={(e) => update(i, 'a', e.target.value)}
             placeholder={hintA}
+            inputMode={numeric ? 'numeric' : undefined}
           />
           <span className="rcm-sep">{sep}</span>
           <input
@@ -299,6 +434,7 @@ function PairList({
             value={r.b}
             onChange={(e) => update(i, 'b', e.target.value)}
             placeholder={hintB}
+            inputMode={numeric ? 'numeric' : undefined}
           />
           <button
             type="button"

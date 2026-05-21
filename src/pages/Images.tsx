@@ -8,11 +8,13 @@ import { Glyph, type IconName } from '@/components/ui/Icon';
 import { Pill } from '@/components/ui/Badge';
 import { Ring } from '@/components/ui/Charts';
 import { RuntimeBadge } from '@/components/ui/Runtime';
+import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
 import { useImages } from '@/hooks/useData';
 import { ContainerCommands, ImageCommands } from '@/lib/commands';
 import { RUNTIMES } from '@/data/seed';
+import type { RuntimeName } from '@/types';
 
 const LAYER_CMDS = ['FROM base', 'COPY src', 'RUN npm ci', 'COPY dist', 'CMD ["node"]'];
 const LAYER_SIZES = ['64MB', '12MB', '24MB', '8MB', '< 1MB'];
@@ -43,6 +45,10 @@ export default function Images() {
   const [selected, setSelected] = useState<string | null>(null);
   const [tagging, setTagging] = useState(false);
   const [tagValue, setTagValue] = useState('');
+  const [configureImage, setConfigureImage] = useState<{
+    image: string;
+    rt: RuntimeName;
+  } | null>(null);
   const pullTimer = useRef<number | null>(null);
 
   useEffect(
@@ -312,6 +318,18 @@ export default function Images() {
               <button className="action-btn" type="button" onClick={runImage}>
                 <Glyph name="play" size={12} /> Run
               </button>
+              <button
+                className="action-btn"
+                type="button"
+                onClick={() =>
+                  setConfigureImage({
+                    image: `${detail.name}:${detail.tag}`,
+                    rt: detail.rt,
+                  })
+                }
+              >
+                <Glyph name="settings" size={12} /> Configure
+              </button>
               <button className="action-btn" type="button" onClick={pushImage}>
                 Push
               </button>
@@ -350,6 +368,14 @@ export default function Images() {
           </div>
         )}
       </BentoCard>
+
+      {configureImage && (
+        <RunContainerModal
+          defaultRuntime={configureImage.rt}
+          defaultImage={configureImage.image}
+          onClose={() => setConfigureImage(null)}
+        />
+      )}
     </div>
   );
 }
