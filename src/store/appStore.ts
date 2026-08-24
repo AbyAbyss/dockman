@@ -5,7 +5,12 @@
 // seed data with local mutation so the UI keeps working without a backend.
 
 import { create } from 'zustand';
-import type { Container, ContainerStatus, RuntimeFilter } from '@/types';
+import type {
+  Container,
+  ContainerStatus,
+  RuntimeFilter,
+  StatusFilter,
+} from '@/types';
 import { INITIAL_CONTAINERS } from '@/data/seed';
 import { isTauri } from '@/lib/tauri';
 import { ContainerCommands } from '@/lib/commands';
@@ -29,8 +34,25 @@ interface AppState {
   loading: boolean;
   error: string | null;
 
+  /** Container-table status filter (the toolbar pills). */
+  statusFilter: StatusFilter;
+  /** Ids of the containers ticked in the table. */
+  selection: string[];
+  /** Id of the container whose detail pane is open, or null when closed. */
+  focusedContainer: string | null;
+  /** Desired replica count per compose project, set by the group stepper. */
+  replicas: Record<string, number>;
+
   setRuntimeFilter: (f: RuntimeFilter) => void;
   setQuery: (q: string) => void;
+  setStatusFilter: (f: StatusFilter) => void;
+  setFocusedContainer: (id: string | null) => void;
+
+  toggleSelected: (id: string) => void;
+  /** Tick every id, or untick them all when they are already ticked. */
+  toggleSelectedMany: (ids: string[]) => void;
+  clearSelection: () => void;
+  setReplicas: (stack: string, n: number) => void;
 
   /** Fetch the live container inventory (no-op in browser mode). */
   refresh: () => Promise<void>;
@@ -41,9 +63,16 @@ interface AppState {
   removeContainer: (id: string) => Promise<void>;
   startAllStopped: () => Promise<void>;
   restartAllRunning: () => Promise<void>;
-  /** Start / stop every container belonging to a compose stack. */
+  /** Stop every running container — the headline bulk action. */
+  stopAllRunning: () => Promise<void>;
+  /** Apply a lifecycle action to the current selection, then clear it. */
+  actOnSelection: (
+    action: 'start' | 'stop' | 'restart' | 'remove',
+  ) => Promise<void>;
+  /** Start / stop / restart every container belonging to a compose stack. */
   startStack: (stack: string) => Promise<void>;
   stopStack: (stack: string) => Promise<void>;
+  restartStack: (stack: string) => Promise<void>;
   /** Gentle CPU drift on running containers — seed mode aliveness only. */
   driftCpu: () => void;
 }
@@ -58,8 +87,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   loading: false,
   error: null,
 
+  statusFilter: 'all',
+  selection: [],
+  focusedContainer: null,
+  replicas: {},
+
   setRuntimeFilter: (runtimeFilter) => set({ runtimeFilter }),
   setQuery: (query) => set({ query }),
+  setStatusFilter: (statusFilter) => set({ statusFilter }),
+  setFocusedContainer: (focusedContainer) => set({ focusedContainer }),
+
+  toggleSelected: (id) =>
+    set((s) => ({
+      selection: s.selection.includes(id)
+        ? s.selection.filter((x) => x !== id)
+        : [...s.selection, id],
+    })),
+
+  toggleSelectedMany: (ids) =>
+    set((s) => {
+      const allOn = ids.length > 0 && ids.every((id) => s.selection.includes(id));
+      return {
+        selection: allOn
+          ? s.selection.filter((id) => !ids.includes(id))
+          : Array.from(new Set([...s.selection, ...ids])),
+      };
+    }),
+
+  clearSelection: () => set({ selection: [] }),
+
+  // Clamped to the same 0–9 range the group stepper offers.
+  setReplicas: (stack, n) =>
+    set((s) => ({
+      replicas: { ...s.replicas, [stack]: Math.min(9, Math.max(0, n)) },
+    })),
 
   refresh: async () => {
     if (!get().live) return;
@@ -94,8 +155,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!c) return;
     if (live) {
       try {
-        if (next === 'running') await ContainerCommands.start(c.rt, id);
-        else if (next === 'paused') await ContainerCommands.pause(c.rt, id);
+        if (next === 'running') {
+          // A paused container resumes with `unpause`; `start` is a no-op on it.
+          if (c.status === 'paused') await ContainerCommands.unpause(c.rt, id);
+          else await ContainerCommands.start(c.rt, id);
+        } else if (next === 'paused') await ContainerCommands.pause(c.rt, id);
         else await ContainerCommands.stop(c.rt, id);
       } catch (e) {
         set({ error: String(e) });
@@ -155,6 +219,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { containers, live, refresh } = get();
     const c = containers.find((x) => x.id === id);
     if (!c) return;
+    // Drop the id from selection / focus first — the row is about to vanish.
+    set((s) => ({
+      selection: s.selection.filter((x) => x !== id),
+      focusedContainer: s.focusedContainer === id ? null : s.focusedContainer,
+    }));
     if (live) {
       try {
         await ContainerCommands.remove(c.rt, id);
@@ -163,7 +232,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       await refresh();
     } else {
-      set({ containers: containers.filter((x) => x.id !== id) });
+      set({ containers: get().containers.filter((x) => x.id !== id) });
     }
   },
 
@@ -203,6 +272,71 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       });
     }
+  },
+
+  stopAllRunning: async () => {
+    const { containers, live, refresh } = get();
+    if (live) {
+      const running = containers.filter((c) => c.status === 'running');
+      await Promise.all(
+        running.map((c) =>
+          ContainerCommands.stop(c.rt, c.id).catch((e) => set({ error: String(e) })),
+        ),
+      );
+      await refresh();
+    } else {
+      set({
+        containers: containers.map((c) =>
+          c.status === 'running' ? applyStatus(c, 'stopped') : c,
+        ),
+      });
+    }
+  },
+
+  actOnSelection: async (action) => {
+    const { containers, selection, live, refresh } = get();
+    const targets = containers.filter((c) => selection.includes(c.id));
+    if (targets.length === 0) return;
+    if (live) {
+      await Promise.all(
+        targets.map((c) => {
+          const call =
+            action === 'start'
+              ? c.status === 'paused'
+                ? ContainerCommands.unpause(c.rt, c.id)
+                : ContainerCommands.start(c.rt, c.id)
+              : action === 'stop'
+                ? ContainerCommands.stop(c.rt, c.id)
+                : action === 'restart'
+                  ? ContainerCommands.restart(c.rt, c.id)
+                  : ContainerCommands.remove(c.rt, c.id);
+          return call.catch((e) => set({ error: String(e) }));
+        }),
+      );
+      set({ selection: [] });
+      await refresh();
+    } else {
+      const ids = targets.map((c) => c.id);
+      set({
+        containers:
+          action === 'remove'
+            ? containers.filter((c) => !ids.includes(c.id))
+            : containers.map((c) =>
+                ids.includes(c.id)
+                  ? action === 'stop'
+                    ? applyStatus(c, 'stopped')
+                    : applyStatus(c, 'running')
+                  : c,
+              ),
+        selection: [],
+      });
+    }
+    // A removed container must not keep the detail pane open.
+    set((s) => ({
+      focusedContainer: s.containers.some((c) => c.id === s.focusedContainer)
+        ? s.focusedContainer
+        : null,
+    }));
   },
 
   startStack: async (stack) => {
@@ -246,6 +380,27 @@ export const useAppStore = create<AppState>((set, get) => ({
           c.stack === stack && c.status === 'running'
             ? applyStatus(c, 'stopped')
             : c,
+        ),
+      });
+    }
+  },
+
+  restartStack: async (stack) => {
+    const { containers, live, refresh } = get();
+    const targets = containers.filter((c) => c.stack === stack);
+    if (live) {
+      await Promise.all(
+        targets.map((c) =>
+          ContainerCommands.restart(c.rt, c.id).catch((e) =>
+            set({ error: String(e) }),
+          ),
+        ),
+      );
+      await refresh();
+    } else {
+      set({
+        containers: containers.map((c) =>
+          c.stack === stack ? applyStatus(c, 'running') : c,
         ),
       });
     }

@@ -1,10 +1,12 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { TopBar } from '@/components/layout/TopBar';
-import { TabBar } from '@/components/layout/TabBar';
+import { Rail } from '@/components/layout/Rail';
+import { CommandBar } from '@/components/layout/CommandBar';
+import { StatusBar } from '@/components/layout/StatusBar';
+import { CommandPalette } from '@/components/ui/CommandPalette';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TABS } from '@/lib/tabs';
 import { SystemCommands } from '@/lib/commands';
-import { useCounts } from '@/hooks/useCounts';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, PALETTES, useThemeStore } from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
@@ -19,10 +21,16 @@ export default function App() {
   const live = useAppStore((s) => s.live);
   const refresh = useAppStore((s) => s.refresh);
   const driftCpu = useAppStore((s) => s.driftCpu);
-  const counts = useCounts();
+  const stopAllRunning = useAppStore((s) => s.stopAllRunning);
+  const runningCount = useAppStore(
+    (s) => s.containers.filter((c) => c.status === 'running').length,
+  );
   const wizardCompleted = useWizardStore((s) => s.completed);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [confirmStopAll, setConfirmStopAll] = useState(false);
 
   const pal = PALETTES[theme.palette];
   const acc = ACCENTS[theme.accent];
@@ -70,6 +78,18 @@ export default function App() {
     SystemCommands.setTranslucent(theme.translucent).catch(() => undefined);
   }, [theme.translucent]);
 
+  // ⌘K / Ctrl-K opens the palette from anywhere in the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const rootStyle: Record<string, string> = {
     '--bg': pal.bg,
     '--surface': mix(pal.surface),
@@ -91,6 +111,7 @@ export default function App() {
     '--gap': `${theme.gap}px`,
     '--radius': `${theme.radius}px`,
     '--mono': "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+    '--sans': "'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif",
   };
 
   return (
@@ -102,18 +123,32 @@ export default function App() {
       data-rt={runtimeFilter}
       style={rootStyle as CSSProperties}
     >
-      <TopBar />
-      <div className="layout-body">
-        <TabBar
-          counts={counts}
-          position={theme.tabPosition}
-          collapsed={theme.tabCollapsed}
-          onToggleCollapse={() => theme.setTabCollapsed(!theme.tabCollapsed)}
-        />
-        <main className="stage" key={location.pathname}>
-          <Outlet />
-        </main>
+      <div className="shell">
+        <Rail collapsed={theme.tabCollapsed} />
+        <div className="shell-main">
+          <CommandBar onOpenPalette={() => setPaletteOpen(true)} />
+          <main className="stage" key={location.pathname}>
+            <Outlet />
+          </main>
+          <StatusBar />
+        </div>
       </div>
+
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          onStopAllRunning={() => setConfirmStopAll(true)}
+        />
+      )}
+      {confirmStopAll && (
+        <ConfirmDialog
+          title="Stop all running containers?"
+          body={`${runningCount} container${runningCount === 1 ? '' : 's'} will be stopped. Compose stacks stay defined — this does not remove anything.`}
+          confirmLabel={`Stop ${runningCount}`}
+          onConfirm={stopAllRunning}
+          onClose={() => setConfirmStopAll(false)}
+        />
+      )}
       {!wizardCompleted && <SetupWizard />}
     </div>
   );

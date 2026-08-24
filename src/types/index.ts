@@ -8,6 +8,9 @@ export type RuntimeFilter = 'all' | RuntimeName;
 
 export type ContainerStatus = 'running' | 'paused' | 'stopped';
 
+/** Container table status filter — 'all' plus each concrete status. */
+export type StatusFilter = 'all' | ContainerStatus;
+
 export interface Container {
   id: string;
   rt: RuntimeName;
