@@ -1,12 +1,8 @@
-// Binaries — Binary Manager: a guided, trackable setup checklist plus
-// download / install / reset of the official standalone Docker / Podman CLIs.
+// Binaries — Binary Manager: a guided setup checklist plus download / install
+// / reset of the official standalone Docker / Podman CLIs.
 
 import { useEffect, useRef, useState } from 'react';
-import { BentoCard } from '@/components/ui/BentoCard';
-import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
-import { Pill, StatusDot } from '@/components/ui/Badge';
-import { RuntimeBadge } from '@/components/ui/Runtime';
 import { useRuntimes } from '@/hooks/useData';
 import {
   BinaryCommands,
@@ -17,7 +13,7 @@ import {
 } from '@/lib/commands';
 import { isTauri, listen, type UnlistenFn } from '@/lib/tauri';
 import { BINARY_MANIFEST, DOWNLOAD_HISTORY, RUNTIMES } from '@/data/seed';
-import type { RuntimeMeta, RuntimeName } from '@/types';
+import type { RuntimeName } from '@/types';
 
 type Phase = 'downloading' | 'extracting' | 'installing' | 'done' | 'error';
 
@@ -62,239 +58,28 @@ function seedSetup(rt: RuntimeName): SetupStatus {
   };
 }
 
-// ─── Setup checklist ─────────────────────────────────────────────────────────
-
-function SetupChecklist({
-  rt,
-  status,
-  starting,
-  onStart,
-}: {
-  rt: RuntimeName;
-  status: SetupStatus | null;
-  starting: boolean;
-  onStart: () => void;
-}) {
-  const meta = RUNTIMES[rt];
+/** The checks `SetupStatus` reports, per runtime. */
+function stepsFor(rt: RuntimeName, status: SetupStatus | null) {
   const engineAvailable = !!status?.engineApp || !!status?.engineRunning;
-  const steps =
-    rt === 'docker'
-      ? [
-          { label: 'Docker CLI installed', done: !!status?.cliInstalled },
-          {
-            label:
-              status?.engineApp && status.engineApp !== 'running'
-                ? `Engine available · ${status.engineApp}`
-                : 'Container engine available',
-            done: engineAvailable,
-          },
-          { label: 'Engine running', done: !!status?.engineRunning },
-        ]
-      : [
-          { label: 'Podman CLI installed', done: !!status?.cliInstalled },
-          { label: 'VM helpers · gvproxy, vfkit', done: !!status?.helpersReady },
-          { label: 'Podman machine created', done: !!status?.machineExists },
-          { label: 'Machine running', done: !!status?.engineRunning },
-        ];
-  const allDone = steps.every((s) => s.done);
-  const cliMissing = !status?.cliInstalled;
-  const dockerNoEngine = rt === 'docker' && !engineAvailable;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div className="bc-section">
-        <Glyph name={rt === 'docker' ? 'container' : 'extension'} size={11} />
-        <span>{meta.name}</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {steps.map((s, i) => (
-          <div key={i} className="bin-compat-row">
-            <div className="bin-compat-cell">
-              <StatusDot status={s.done ? 'success' : 'stopped'} />
-              <span>{s.label}</span>
-            </div>
-            <Pill tone={s.done ? 'ok' : 'dim'}>{s.done ? 'ready' : 'pending'}</Pill>
-          </div>
-        ))}
-      </div>
-      {allDone ? (
-        <div className="bin-opt-sub mono">{meta.name} is fully set up.</div>
-      ) : cliMissing ? (
-        <div className="bin-opt-sub mono">
-          Download the {meta.name} CLI from the card below to begin.
-        </div>
-      ) : dockerNoEngine ? (
-        <div className="bin-opt-sub mono">
-          No engine found — install OrbStack or Docker Desktop, or run{' '}
-          <b>brew install colima</b>, then start it here.
-        </div>
-      ) : (
-        <button
-          className="action-btn primary"
-          type="button"
-          onClick={onStart}
-          disabled={starting}
-          style={{ background: meta.accent, borderColor: meta.accent }}
-        >
-          <Glyph name="bolt" size={12} />{' '}
-          {starting ? 'starting engine…' : `Start ${meta.name} engine`}
-        </button>
-      )}
-    </div>
-  );
+  return rt === 'docker'
+    ? [
+        { label: 'Docker CLI installed', done: !!status?.cliInstalled },
+        {
+          label:
+            status?.engineApp && status.engineApp !== 'running'
+              ? `Engine available · ${status.engineApp}`
+              : 'Container engine available',
+          done: engineAvailable,
+        },
+        { label: 'Engine running', done: !!status?.engineRunning },
+      ]
+    : [
+        { label: 'Podman CLI installed', done: !!status?.cliInstalled },
+        { label: 'VM helpers · gvproxy, vfkit', done: !!status?.helpersReady },
+        { label: 'Podman machine created', done: !!status?.machineExists },
+        { label: 'Machine running', done: !!status?.engineRunning },
+      ];
 }
-
-// ─── Runtime card ────────────────────────────────────────────────────────────
-
-function BinaryRuntimeCard({
-  rt,
-  meta,
-  releases,
-  selectedVersion,
-  setSelectedVersion,
-  task,
-  onDownload,
-  onRemove,
-}: {
-  rt: RuntimeName;
-  meta: RuntimeMeta;
-  releases: BinaryRelease[];
-  selectedVersion: string;
-  setSelectedVersion: (v: string) => void;
-  task: DownloadTask | null;
-  onDownload: (rt: RuntimeName, version: string) => void;
-  onRemove: (rt: RuntimeName) => void;
-}) {
-  const latest = releases[0]?.version ?? '';
-  const isLatest = meta.found && !!latest && meta.version === latest;
-
-  return (
-    <BentoCard span={6} className={`bc-binary bc-binary-${rt}`}>
-      <div className="bin-card-h">
-        <div className={`bin-card-mark rt-${rt}`}>
-          <Glyph name={rt === 'docker' ? 'container' : 'extension'} size={26} />
-        </div>
-        <div className="bin-card-id">
-          <div className="bin-card-name">{meta.name}</div>
-          {meta.found ? (
-            <div className="bin-card-status">
-              <span
-                className="ok-dot"
-                style={{ background: meta.accent, boxShadow: `0 0 0 4px ${meta.soft}` }}
-              />
-              v{meta.version}
-              {isLatest ? ' · up to date' : latest ? ` · latest ${latest}` : ''}
-            </div>
-          ) : (
-            <div className="bin-card-status not-found">
-              <span className="dot" style={{ background: 'var(--bad)' }} />
-              Not installed
-            </div>
-          )}
-        </div>
-        {meta.found && (
-          <Pill tone={isLatest ? 'ok' : 'warn'}>
-            {isLatest ? 'latest' : 'update available'}
-          </Pill>
-        )}
-      </div>
-
-      {meta.found && <div className="bin-card-path mono">{meta.path}</div>}
-
-      <div className="bin-card-versions">
-        <div className="bc-section">
-          <span>Official releases · {meta.arch || 'host'}</span>
-        </div>
-        <div className="version-list">
-          {releases.length === 0 && (
-            <div className="version-meta mono" style={{ padding: '8px 2px' }}>
-              Loading releases…
-            </div>
-          )}
-          {releases.map((r, i) => (
-            <button
-              key={r.version}
-              type="button"
-              className={`version-row ${selectedVersion === r.version ? 'is-on' : ''} ${
-                meta.found && meta.version === r.version ? 'is-installed' : ''
-              }`}
-              onClick={() => setSelectedVersion(r.version)}
-            >
-              <div className="version-tag-col">
-                <span className="version-v mono">v{r.version}</span>
-                {i === 0 && <Pill tone="ok">latest</Pill>}
-                {meta.found && meta.version === r.version && (
-                  <Pill tone="dim">installed</Pill>
-                )}
-              </div>
-              <div className="version-meta mono">{r.arch}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {task ? (
-        <div className="bin-progress">
-          <div className="bin-progress-h">
-            <span className="bin-progress-label">{PHASE_LABEL[task.phase]}</span>
-            <span className="mono">
-              {task.phase === 'done'
-                ? '✓'
-                : task.phase === 'error'
-                  ? '✕'
-                  : `${task.percent}%`}
-            </span>
-          </div>
-          <div className="pull-bar">
-            <div
-              className="pull-fill"
-              style={{
-                width: `${task.percent}%`,
-                background: task.phase === 'error' ? 'var(--bad)' : meta.accent,
-              }}
-            />
-          </div>
-          <div className="bin-progress-meta mono">
-            {task.phase === 'error'
-              ? task.message || 'download failed'
-              : `${rt} v${task.version}${
-                  task.phase === 'done' && task.message ? ` → ${task.message}` : ''
-                }`}
-          </div>
-        </div>
-      ) : (
-        <div className="bin-card-actions">
-          {!meta.found || meta.version !== selectedVersion ? (
-            <button
-              className="action-btn primary bin-cta"
-              type="button"
-              style={{ background: meta.accent, borderColor: meta.accent }}
-              disabled={!selectedVersion}
-              onClick={() => onDownload(rt, selectedVersion)}
-            >
-              <Glyph name="arrow" size={12} />{' '}
-              {meta.found ? 'Install' : 'Download'} v{selectedVersion || '—'}
-            </button>
-          ) : (
-            <button className="action-btn" type="button" disabled>
-              <Glyph name="bolt" size={12} /> v{meta.version} active
-            </button>
-          )}
-          <button
-            className="action-btn danger"
-            type="button"
-            title="Remove the Dockman-installed binary (reset)"
-            onClick={() => onRemove(rt)}
-          >
-            <Glyph name="trash" size={12} />
-          </button>
-        </div>
-      )}
-    </BentoCard>
-  );
-}
-
-// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Binaries() {
   const { runtimes, refetch: refetchRuntimes } = useRuntimes();
@@ -314,6 +99,7 @@ export default function Binaries() {
   });
   const [installDir, setInstallDir] = useState('~/.local/bin');
   const [autoPath, setAutoPath] = useState(true);
+  const [verifyAfter, setVerifyAfter] = useState(true);
   const [task, setTask] = useState<DownloadTask | null>(null);
   const [startingRt, setStartingRt] = useState<RuntimeName | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
@@ -406,6 +192,8 @@ export default function Binaries() {
       if (p.phase === 'done') {
         if (p.message) RuntimeCommands.setPath(rt, p.message).catch(() => undefined);
         if (autoPath) BinaryCommands.addToPath(installDir).catch(() => undefined);
+        if (verifyAfter && p.message)
+          BinaryCommands.verify(p.message).catch(() => undefined);
         refetchRuntimes();
         loadSetup();
         window.setTimeout(() => setTask(null), 2800);
@@ -448,177 +236,263 @@ export default function Binaries() {
       .catch(() => undefined);
   };
 
-  const totalInstalled = RUNTIME_KEYS.filter((rt) => runtimes[rt].found).length;
-  const upToDate = RUNTIME_KEYS.filter(
-    (rt) => runtimes[rt].found && runtimes[rt].version === releases[rt][0]?.version,
-  ).length;
+  const allReady = RUNTIME_KEYS.every((rt) =>
+    stepsFor(rt, setup[rt]).every((s) => s.done),
+  );
 
   return (
-    <div className="bento">
-      <div className="stat-trio" style={{ gridColumn: 'span 6' }}>
-        <StatTile value={totalInstalled} label="Installed runtimes" section="Local" sectionIcon="extension" tone="violet" suffix={`/${RUNTIME_KEYS.length}`} />
-        <StatTile value={upToDate} label="Up to date" section="Current" sectionIcon="bolt" tone="default" suffix={`/${Math.max(totalInstalled, 1)}`} />
-        <StatTile value={DOWNLOAD_HISTORY.length} label="Downloads" section="History" sectionIcon="arrow" tone="default" suffix="" />
+    <div className="screen-pad bin">
+      {/* ─── Setup checklist ───────────────────────────────────────────── */}
+      <div className="card">
+        <div className="ov-card-head">
+          <span className="card-title">Setup checklist</span>
+          <span className="toolbar-note mono">
+            {allReady ? 'both runtimes ready' : 'setup incomplete'}
+          </span>
+        </div>
+        <div className="bin-check-cols">
+          {RUNTIME_KEYS.map((rt) => {
+            const steps = stepsFor(rt, setup[rt]);
+            const engineDown = !!setup[rt]?.cliInstalled && !setup[rt]?.engineRunning;
+            return (
+              <div key={rt} className="bin-check-col">
+                <div className="bin-check-head">
+                  <span
+                    className="ov-engine-dot"
+                    style={{ background: runtimes[rt].accent }}
+                  />
+                  <span className="bin-check-name">{runtimes[rt].name}</span>
+                  {engineDown && (
+                    <button
+                      type="button"
+                      className="text-btn"
+                      disabled={startingRt === rt}
+                      onClick={() => startEngine(rt)}
+                    >
+                      {startingRt === rt ? 'starting…' : 'start engine'}
+                    </button>
+                  )}
+                </div>
+                {steps.map((s) => (
+                  <div key={s.label} className="bin-check-row">
+                    <span className={`bin-check-mark ${s.done ? 'is-on' : ''}`}>
+                      {s.done && <Glyph name="check" size={9} sw={3} />}
+                    </span>
+                    <span className="bin-check-label">{s.label}</span>
+                    <span className={`bin-check-state mono ${s.done ? 'is-on' : ''}`}>
+                      {s.done ? 'READY' : 'MISSING'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        <div className="bin-note mono">
+          Dockman only downloads official standalone CLI binaries — it never installs
+          Docker Desktop or changes an engine you already manage.
+        </div>
       </div>
 
-      <BentoCard
-        section="Guide"
-        sectionIcon="bolt"
-        title="Setup Checklist"
-        span={6}
-        headerAlign="left"
-      >
-        <div className="appearance-grid">
-          <SetupChecklist
-            rt="docker"
-            status={setup.docker}
-            starting={startingRt === 'docker'}
-            onStart={() => startEngine('docker')}
-          />
-          <SetupChecklist
-            rt="podman"
-            status={setup.podman}
-            starting={startingRt === 'podman'}
-            onStart={() => startEngine('podman')}
-          />
-        </div>
-      </BentoCard>
+      {/* ─── Runtime cards ─────────────────────────────────────────────── */}
+      <div className="bin-runtimes">
+        {RUNTIME_KEYS.map((rt) => {
+          const meta = runtimes[rt];
+          const list = releases[rt];
+          const latest = list[0]?.version ?? meta.latest;
+          const current = meta.version;
+          const upToDate = meta.found && current === latest;
+          const active = task?.rt === rt ? task : null;
+          const chosen = selectedVersion[rt] || latest;
 
-      <BinaryRuntimeCard
-        rt="docker"
-        meta={runtimes.docker}
-        releases={releases.docker}
-        selectedVersion={selectedVersion.docker}
-        setSelectedVersion={(v) => setSelectedVersion((s) => ({ ...s, docker: v }))}
-        task={task?.rt === 'docker' ? task : null}
-        onDownload={startDownload}
-        onRemove={resetBinary}
-      />
-      <BinaryRuntimeCard
-        rt="podman"
-        meta={runtimes.podman}
-        releases={releases.podman}
-        selectedVersion={selectedVersion.podman}
-        setSelectedVersion={(v) => setSelectedVersion((s) => ({ ...s, podman: v }))}
-        task={task?.rt === 'podman' ? task : null}
-        onDownload={startDownload}
-        onRemove={resetBinary}
-      />
-
-      <BentoCard section="Install" sectionIcon="settings" title="Where binaries land" span={6} headerAlign="left">
-        <div className="bin-install">
-          <div className="bin-path-row">
-            <div className="bc-section">
-              <span>Install directory</span>
-            </div>
-            <div className="pull-input">
-              <Glyph name="volume" size={13} />
-              <input
-                value={installDir}
-                onChange={(e) => setInstallDir(e.target.value)}
-                className="mono"
-              />
-            </div>
-          </div>
-          <label className="bin-opt-row">
-            <input
-              type="checkbox"
-              checked={autoPath}
-              onChange={(e) => setAutoPath(e.target.checked)}
-            />
-            <div>
-              <div className="bin-opt-label">Automatically add to PATH</div>
-              <div className="bin-opt-sub mono">
-                appends to ~/.zshrc and ~/.bashrc after a successful install
+          return (
+            <div key={rt} className="card bin-card">
+              <div className="bin-card-head">
+                <span className={`bin-icon rt-${rt}`}>
+                  <Glyph name="extension" size={18} />
+                </span>
+                <div className="bin-id">
+                  <div className="bin-name">{meta.name}</div>
+                  <div className="bin-meta mono">
+                    <span
+                      className="ov-engine-dot"
+                      style={{ background: meta.running ? meta.accent : undefined }}
+                    />
+                    v{current} · latest {latest}
+                  </div>
+                </div>
+                <span className={`bin-state mono ${upToDate ? 'is-on' : 'is-warn'}`}>
+                  {upToDate ? 'UP TO DATE' : 'UPDATE AVAILABLE'}
+                </span>
               </div>
-            </div>
-          </label>
-          <label className="bin-opt-row">
-            <input type="checkbox" checked readOnly />
-            <div>
-              <div className="bin-opt-label">Verify after download</div>
-              <div className="bin-opt-sub mono">
-                re-detects the runtime to confirm the install worked
-              </div>
-            </div>
-          </label>
-        </div>
-      </BentoCard>
 
-      <BentoCard section="Platform" sectionIcon="cpu" title="Your machine" span={6} headerAlign="left">
-        <div className="bin-platform">
-          <div className="bin-platform-h">
-            <div className="bin-platform-os">macOS</div>
-            <div className="bin-platform-arch mono">
-              {runtimes.docker.arch || 'aarch64'} · Apple Silicon
+              <div className="bin-path">
+                <span className="mono">{meta.path}</span>
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() =>
+                    BinaryCommands.defaultInstallDir()
+                      .then((d) => RuntimeCommands.setPath(rt, d))
+                      .then(() => refetchRuntimes())
+                      .catch(() => undefined)
+                  }
+                >
+                  Browse
+                </button>
+              </div>
+
+              <div className="section-label">
+                OFFICIAL RELEASES · {BINARY_MANIFEST[rt].platform}
+              </div>
+              <div className="bin-versions">
+                {list.length === 0 && (
+                  <div className="det-empty mono">fetching releases…</div>
+                )}
+                {list.slice(0, 4).map((r, i) => {
+                  const seedInfo = BINARY_MANIFEST[rt].versions.find(
+                    (v) => v.v === r.version,
+                  );
+                  return (
+                    <button
+                      key={r.version}
+                      type="button"
+                      className={`bin-version ${i === 0 ? 'is-latest' : ''} ${chosen === r.version ? 'is-chosen' : ''}`}
+                      onClick={() =>
+                        setSelectedVersion((p) => ({ ...p, [rt]: r.version }))
+                      }
+                    >
+                      <span className="mono">{r.version}</span>
+                      {i === 0 && <span className="latest-chip mono">LATEST</span>}
+                      <span className="bin-version-meta mono">
+                        {seedInfo ? `${seedInfo.released} · ${seedInfo.size}` : r.platform}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {active ? (
+                <div className="bin-task">
+                  <div className="bin-task-row mono">
+                    <span>
+                      {PHASE_LABEL[active.phase]} {active.version}
+                    </span>
+                    <span>{active.percent}%</span>
+                  </div>
+                  <div className="track">
+                    <div
+                      className={`track-fill ${active.phase === 'error' ? 'tone-bad' : ''}`}
+                      style={{ width: `${active.percent}%` }}
+                    />
+                  </div>
+                  {active.message && (
+                    <div className="bin-task-msg mono">{active.message}</div>
+                  )}
+                </div>
+              ) : (
+                <div className="bin-foot">
+                  <button
+                    type="button"
+                    className="bin-install"
+                    style={{ background: meta.accent }}
+                    onClick={() => startDownload(rt, chosen)}
+                  >
+                    Install v{chosen}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    title={`Remove the ${meta.name} binary Dockman installed`}
+                    onClick={() => resetBinary(rt)}
+                  >
+                    <Glyph name="more" size={13} sw={2.2} />
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="bin-platform-note">
-            <Glyph name="bolt" size={12} />
-            <span>
-              Dockman downloads only the official standalone CLI binaries —
-              <b> download.docker.com</b> for Docker and the
-              <b> containers/podman</b> GitHub releases for Podman. Podman's VM
-              helpers (gvproxy, vfkit) are fetched automatically on first start.
+          );
+        })}
+      </div>
+
+      {/* ─── Bottom row ────────────────────────────────────────────────── */}
+      <div className="ov-row-3">
+        <div className="card bin-loc">
+          <div className="card-title">Install location</div>
+          <input
+            className="field mono"
+            value={installDir}
+            onChange={(e) => setInstallDir(e.target.value)}
+          />
+          <button
+            type="button"
+            className="check-row"
+            onClick={() => setAutoPath(!autoPath)}
+            aria-pressed={autoPath}
+          >
+            <span className={`check-box ${autoPath ? 'is-on' : ''}`}>
+              {autoPath && <Glyph name="check" size={10} sw={3} />}
             </span>
+            Automatically add to PATH
+          </button>
+          <div className="bin-sub mono">
+            appends the directory to your shell profile so `docker` resolves in new
+            terminals
           </div>
-          <div className="bin-compat">
-            <div className="bin-compat-row">
-              <div className="bin-compat-cell">
-                <RuntimeBadge rt="docker" size="sm" />
-                <span>needs an engine — OrbStack / Docker Desktop / Colima</span>
-              </div>
-              <Pill tone="ok">official</Pill>
-            </div>
-            <div className="bin-compat-row">
-              <div className="bin-compat-cell">
-                <RuntimeBadge rt="podman" size="sm" />
-                <span>self-contained — podman machine + helpers</span>
-              </div>
-              <Pill tone="ok">official</Pill>
-            </div>
+          <button
+            type="button"
+            className="check-row"
+            onClick={() => setVerifyAfter(!verifyAfter)}
+            aria-pressed={verifyAfter}
+          >
+            <span className={`check-box ${verifyAfter ? 'is-on' : ''}`}>
+              {verifyAfter && <Glyph name="check" size={10} sw={3} />}
+            </span>
+            Verify after download
+          </button>
+          <div className="bin-sub mono">
+            runs the binary once and records the version it reports
           </div>
         </div>
-      </BentoCard>
 
-      <BentoCard section="History" sectionIcon="bolt" title="Recent Downloads" span={7} headerAlign="left">
-        <div className="bin-history">
-          {DOWNLOAD_HISTORY.map((h, i) => (
-            <div key={i} className="bin-history-row">
-              <RuntimeBadge rt={h.rt} size="sm" />
-              <div className="bin-history-body">
-                <div className="bin-history-v mono">v{h.v}</div>
-                <div className="bin-history-path mono">{h.path}</div>
+        <div className="card bin-dl">
+          <div className="card-title">Recent downloads</div>
+          {DOWNLOAD_HISTORY.map((d, i) => (
+            <div key={i} className="bin-dl-row">
+              <span
+                className="ov-engine-dot"
+                style={{ background: RUNTIMES[d.rt].accent }}
+              />
+              <div className="bin-dl-id">
+                <div className="bin-dl-v">
+                  {d.rt} {d.v}
+                </div>
+                <div className="bin-dl-p mono">{d.path}</div>
               </div>
-              <div className="bin-history-when mono">{h.when}</div>
-              <Pill tone={h.status === 'success' ? 'ok' : 'dim'}>{h.status}</Pill>
+              <div className="bin-dl-state">
+                <div className="mono">{d.when}</div>
+                <div className={`bin-dl-status mono ${d.status === 'success' ? 'is-on' : ''}`}>
+                  {d.status.toUpperCase()}
+                </div>
+              </div>
             </div>
           ))}
         </div>
-      </BentoCard>
 
-      <BentoCard section="Source" sectionIcon="extension" title="Where we download from" span={5} headerAlign="left">
-        <div className="bin-sources">
-          <div className="bin-source-row">
-            <RuntimeBadge rt="docker" size="sm" />
-            <div className="bin-source-meta">
-              <div className="bin-source-name">Docker CLI</div>
-              <div className="bin-source-url mono">{BINARY_MANIFEST.docker.source}</div>
-            </div>
+        <div className="card bin-machine">
+          <div className="card-title">Your machine</div>
+          <div className="bin-os">macOS</div>
+          <div className="bin-sub mono">
+            {runtimes.docker.arch} · Apple Silicon · 12 cores · 16 GB
           </div>
-          <div className="bin-source-row">
-            <RuntimeBadge rt="podman" size="sm" />
-            <div className="bin-source-meta">
-              <div className="bin-source-name">Podman</div>
-              <div className="bin-source-url mono">{BINARY_MANIFEST.podman.source}</div>
+          <div className="callout">
+            <div className="callout-body mono">
+              Only official standalone CLI binaries are downloaded, verified against the
+              vendor checksum, and installed into your own directory.
             </div>
-          </div>
-          <div className="bin-source-note mono">
-            Only official, standalone CLI binaries — verified by re-detecting the
-            runtime after install.
           </div>
         </div>
-      </BentoCard>
+      </div>
     </div>
   );
 }

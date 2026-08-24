@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
+import { ContainerResourcesModal } from '@/components/ui/ContainerResourcesModal';
 import {
   ContainerCommands,
   containerLogsEvent,
@@ -284,6 +285,9 @@ function useSeries(value: number, len = SERIES_LEN): number[] {
 }
 
 function StatsTab({ container }: { container: Container }) {
+  // `update_container` has no home in the redesign; limits belong beside the
+  // usage they cap, so the editor opens from here.
+  const [editLimits, setEditLimits] = useState(false);
   const cpuSeries = useSeries(container.cpu);
   const memSeries = useSeries(container.mem);
   // No per-container network counter in `commands.ts` yet — derive a stable
@@ -313,6 +317,19 @@ function StatsTab({ container }: { container: Container }) {
 
   return (
     <div className="det-stats">
+      <button
+        type="button"
+        className="det-action"
+        onClick={() => setEditLimits(true)}
+      >
+        Edit memory / CPU limits
+      </button>
+      {editLimits && (
+        <ContainerResourcesModal
+          container={container}
+          onClose={() => setEditLimits(false)}
+        />
+      )}
       {blocks.map((b) => (
         <div key={b.k} className="det-stat">
           <div className="det-stat-head">

@@ -42,11 +42,16 @@ interface AppState {
   focusedContainer: string | null;
   /** Desired replica count per compose project, set by the group stepper. */
   replicas: Record<string, number>;
+  /** Row selection on Networks and Builds — drives their detail panels. */
+  selectedNetwork: string;
+  selectedBuild: string;
 
   setRuntimeFilter: (f: RuntimeFilter) => void;
   setQuery: (q: string) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setFocusedContainer: (id: string | null) => void;
+  setSelectedNetwork: (name: string) => void;
+  setSelectedBuild: (id: string) => void;
 
   toggleSelected: (id: string) => void;
   /** Tick every id, or untick them all when they are already ticked. */
@@ -91,11 +96,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   selection: [],
   focusedContainer: null,
   replicas: {},
+  selectedNetwork: '',
+  selectedBuild: '',
 
   setRuntimeFilter: (runtimeFilter) => set({ runtimeFilter }),
   setQuery: (query) => set({ query }),
   setStatusFilter: (statusFilter) => set({ statusFilter }),
   setFocusedContainer: (focusedContainer) => set({ focusedContainer }),
+  setSelectedNetwork: (selectedNetwork) => set({ selectedNetwork }),
+  setSelectedBuild: (selectedBuild) => set({ selectedBuild }),
 
   toggleSelected: (id) =>
     set((s) => ({

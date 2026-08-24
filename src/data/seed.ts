@@ -99,8 +99,9 @@ export const RUNTIMES: Record<RuntimeName, RuntimeMeta> = {
     path: '/opt/homebrew/bin/podman',
     arch: 'arm64',
     running: true,
-    accent: '#892ca0',
-    soft: 'rgba(137,44,160,0.20)',
+    // Lightened from #892ca0 for legible contrast on the dark palettes.
+    accent: '#c063d8',
+    soft: 'rgba(192,99,216,0.18)',
     latest: '5.1.1',
   },
 };
