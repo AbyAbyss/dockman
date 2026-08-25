@@ -909,14 +909,14 @@
   width: 62px; padding: 8px 0; border-radius: 10px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   background: transparent;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .rail-item:hover { background: var(--subtle); }
 .rail-icon {
   width: 28px; height: 28px; border-radius: 8px;
   display: grid; place-items: center;
   border: 1px solid var(--line); color: var(--dim);
-  transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .rail-label { font-weight: 600; font-size: 8.5px; letter-spacing: .01em; color: var(--dim-80); }
 .rail-item.is-on .rail-icon {
@@ -948,7 +948,7 @@
   display: flex; align-items: center; gap: 8px;
   padding: 0 11px; border-radius: 8px; cursor: pointer;
   background: var(--subtle); border: 1px solid var(--line); color: var(--dim-80);
-  transition: border-color 120ms ease-out;
+  transition: border-color var(--dur) var(--ease);
 }
 .cmdbar-search:hover { border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
 .cmdbar-search-ph { font-size: 11.5px; color: var(--dim-80); }
@@ -971,7 +971,7 @@
   padding: 5px 10px; border-radius: 6px; cursor: pointer;
   font-family: var(--mono); font-weight: 600; font-size: 10.5px; color: var(--dim);
   background: transparent;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .rt-toggle-btn.is-on { background: var(--accent-soft); color: var(--accent); }
 
@@ -1002,7 +1002,7 @@
   padding: 5px 12px; border-radius: 6px; cursor: pointer;
   font-weight: 500; font-size: 11px; color: var(--dim);
   background: transparent;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .ctr-pill.is-on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .ctr-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -1013,7 +1013,7 @@
   padding: 7px 12px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); color: var(--text);
   font-weight: 500; font-size: 11px;
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .tool-btn:hover:not(:disabled) { background: var(--subtle); }
 .tool-btn:disabled { opacity: .45; cursor: default; }
@@ -1058,7 +1058,7 @@
 
 /* ─── Stack group header ────────────────────────────────────────────────── */
 .ctr-group {
-  height: 36px;
+  height: var(--group-h);
   display: flex; align-items: center; gap: 11px;
   padding: 0 20px;
   background: var(--tint);
@@ -1089,7 +1089,7 @@
   width: 20px; height: 20px; border-radius: 5px;
   display: grid; place-items: center; cursor: pointer;
   border: 1px solid var(--line); color: var(--dim);
-  transition: color 120ms ease-out;
+  transition: color var(--dur) var(--ease);
 }
 .ctr-rep-btn:hover:not(:disabled) { color: var(--text); }
 .ctr-rep-btn:disabled { opacity: .4; cursor: default; }
@@ -1103,7 +1103,7 @@
   padding: 5px 10px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--line); color: var(--text);
   font-weight: 500; font-size: 10px;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .stack-btn:hover { background: var(--subtle); }
 .stack-btn.is-danger { border-color: color-mix(in oklab, var(--bad) 30%, transparent); color: var(--bad); }
@@ -1112,17 +1112,17 @@
   width: 26px; height: 26px; border-radius: 6px;
   display: grid; place-items: center; cursor: pointer;
   border: 1px solid var(--line); color: var(--dim);
-  transition: color 120ms ease-out;
+  transition: color var(--dur) var(--ease);
 }
 .stack-icon:hover { color: var(--text); }
 
 /* ─── Container row ─────────────────────────────────────────────────────── */
 .ctr-row {
-  height: 40px;
+  height: var(--row-h);
   padding: 0 20px 0 34px;
   border-bottom: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
   cursor: pointer;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .ctr-row:hover { background: var(--subtle); }
 .ctr-row.is-focused { background: color-mix(in oklab, var(--accent) 10%, transparent); }
@@ -1154,7 +1154,7 @@
   display: grid; place-items: center; cursor: pointer;
   border: 1px solid color-mix(in oklab, var(--line) 85%, transparent);
   color: var(--dim);
-  transition: color 120ms ease-out, border-color 120ms ease-out;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .row-btn:hover:not(:disabled) {
   color: var(--text);
@@ -1183,7 +1183,7 @@
   padding: 7px 12px; border-radius: 7px; cursor: pointer;
   background: var(--subtle); border: 1px solid var(--line);
   color: var(--text); font-weight: 500; font-size: 11px;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .sel-btn:hover { background: color-mix(in oklab, var(--text) 14%, transparent); }
 .sel-btn.is-danger {
@@ -1203,7 +1203,7 @@
   width: 5px; flex: none; cursor: col-resize;
   display: grid; place-items: center;
   background: var(--tint);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .det-handle:hover { background: color-mix(in oklab, var(--accent) 35%, transparent); }
 .det-grip {
@@ -1215,7 +1215,7 @@
   display: flex; flex-direction: column;
   border-left: 1px solid var(--line);
   background: var(--sunken);
-  animation: det-in 160ms ease-out;
+  animation: det-in calc(var(--dur) * 1.3) var(--ease);
 }
 @keyframes det-in {
   from { opacity: 0; transform: translateX(10px); }
@@ -1247,7 +1247,7 @@
   flex: 1; text-align: center; padding: 8px 0; border-radius: 7px; cursor: pointer;
   background: var(--subtle); border: 1px solid var(--line);
   color: var(--text); font-weight: 500; font-size: 10.5px;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .det-action:hover { background: color-mix(in oklab, var(--text) 13%, transparent); }
 .det-action.is-accent {
@@ -1261,7 +1261,7 @@
 .det-tab {
   padding: 6px 10px; border-radius: 6px; cursor: pointer;
   font-weight: 500; font-size: 10.5px; color: var(--dim); background: transparent;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .det-tab.is-on { background: var(--subtle); color: var(--text); font-weight: 600; }
 
@@ -1429,7 +1429,7 @@
   padding: 8px 14px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); color: var(--text);
   font-weight: 500; font-size: 11px;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .pill-btn:hover { background: var(--subtle); }
 .pill-btn.is-primary { background: var(--accent); border-color: transparent; color: var(--bg); font-weight: 600; }
@@ -1468,9 +1468,10 @@
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--r-card);
   background: var(--surface);
-  padding: 14px 16px;
+  padding: var(--pad-y) var(--pad-x);
+  box-shadow: var(--card-shadow);
 }
 .card-title { font-weight: 600; font-size: 12.5px; color: var(--text); }
 .section-label {
@@ -1492,7 +1493,7 @@
   width: 24px; height: 24px; border-radius: 6px;
   display: grid; place-items: center; cursor: pointer;
   border: 1px solid var(--line); color: var(--dim);
-  transition: color 120ms ease-out, border-color 120ms ease-out;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .icon-btn:hover { color: var(--text); border-color: color-mix(in oklab, var(--text) 28%, transparent); }
 .icon-btn.is-danger:hover { color: var(--bad); border-color: color-mix(in oklab, var(--bad) 40%, transparent); }
@@ -1574,7 +1575,7 @@
   display: flex; align-items: center; gap: 9px; width: 100%;
   padding: 10px 15px; cursor: pointer; text-align: left;
   border-bottom: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .ov-stack-row:hover { background: var(--subtle); }
 .ov-stack-cdot { width: 6px; height: 6px; flex: none; border-radius: 50%; }
@@ -1624,7 +1625,7 @@
   padding: 11px 13px; border-radius: 10px; cursor: pointer;
   background: var(--tint);
   border: 1px solid color-mix(in oklab, var(--line) 55%, transparent);
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .ov-quick-row:hover { background: var(--subtle); border-color: color-mix(in oklab, var(--text) 16%, transparent); }
 .ov-quick-icon { width: 28px; height: 28px; flex: none; border-radius: 8px; display: grid; place-items: center; }
@@ -1746,9 +1747,9 @@
 .img-cols .col-iact { width: 92px; flex: none; display: flex; justify-content: flex-end; gap: 5px; }
 
 .img-row {
-  height: 44px; cursor: pointer;
+  height: calc(var(--row-h) + 4px); cursor: pointer;
   border-bottom: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .img-row:hover { background: var(--subtle); }
 .img-row.is-focused { background: color-mix(in oklab, var(--accent) 10%, transparent); }
@@ -1775,7 +1776,7 @@
   padding: 4px 9px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--line); color: var(--text);
   font-weight: 500; font-size: 10px;
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .text-chip:hover { background: var(--subtle); }
 
@@ -1795,9 +1796,9 @@
 .vol-cols .col-vact { width: 60px; flex: none; display: flex; justify-content: flex-end; }
 
 .vol-row {
-  height: 46px;
+  height: calc(var(--row-h) + 6px);
   border-bottom: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .vol-row:hover { background: var(--subtle); }
 .vol-name {
@@ -1840,9 +1841,9 @@
 
 .net-table { flex: none; }
 .net-row {
-  height: 46px; cursor: pointer;
+  height: calc(var(--row-h) + 6px); cursor: pointer;
   border-bottom: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .net-row:hover { background: var(--subtle); }
 .net-row.is-focused { background: color-mix(in oklab, var(--accent) 10%, transparent); }
@@ -1862,7 +1863,7 @@
   padding: 4px 10px; border-radius: 6px; cursor: pointer;
   font-weight: 500; font-size: 10px; color: var(--dim);
   border: 1px solid transparent;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .net-tab:hover { background: var(--subtle); }
 .net-tab.is-on {
@@ -1948,7 +1949,7 @@
   display: flex; align-items: center; gap: 14px;
   padding: 11px 17px; cursor: pointer;
   border-top: 1px solid color-mix(in oklab, var(--line) 40%, transparent);
-  transition: background 120ms ease-out;
+  transition: background var(--dur) var(--ease);
 }
 .build-row:hover { background: var(--subtle); }
 .build-row.is-focused { background: color-mix(in oklab, var(--accent) 10%, transparent); }
@@ -2066,7 +2067,7 @@
   padding: 9px 12px; border-radius: 8px; cursor: pointer;
   background: var(--tint); border: 1px solid transparent;
   font-weight: 500; font-size: 11px; color: var(--text);
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .bin-version:hover { background: var(--subtle); }
 .bin-version.is-latest {
@@ -2089,7 +2090,7 @@
 .bin-install {
   flex: 1; padding: 9px 0; border-radius: 8px; cursor: pointer;
   color: var(--bg); font-weight: 600; font-size: 11px;
-  transition: filter 120ms ease-out;
+  transition: filter var(--dur) var(--ease);
 }
 .bin-install:hover { filter: brightness(1.12); }
 
@@ -2126,7 +2127,7 @@
   display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
   padding: 11px 13px; border-radius: 10px; cursor: pointer;
   background: var(--tint); border: 1px solid transparent;
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .set-rt-row:hover { background: var(--subtle); }
 .set-rt-row.is-on {
@@ -2176,7 +2177,7 @@
   border-radius: 9px; padding: 0 2px; cursor: pointer;
   display: flex; align-items: center; justify-content: flex-start;
   background: var(--line);
-  transition: background 120ms ease-out, justify-content 120ms ease-out;
+  transition: background var(--dur) var(--ease), justify-content var(--dur) var(--ease);
 }
 .switch.is-on { background: var(--accent); justify-content: flex-end; }
 .switch-knob { width: 13px; height: 13px; border-radius: 50%; background: var(--dim); }
@@ -2210,3 +2211,232 @@
 @media (max-width: 1180px) {
   .set-grid, .cap-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================================
+   Playful mode
+   ----------------------------------------------------------------------------
+   A second personality over the same layouts: rounder, roomier, and readier to
+   use colour. Shape / density / motion come from the mode tokens set in
+   App.tsx; everything below is the part that is not expressible as a token.
+
+   NOTE: authored here rather than ported from `Dockman Playful.dc.html` — that
+   file could not be reached from this environment. Swapping in the real design
+   should mostly be a matter of editing MODES.playful in themeStore.ts and the
+   values in this block; no component code depends on either.
+   ============================================================================ */
+
+[data-mode='playful'] {
+  /* Colour is louder: tints are stronger and lines are softer. */
+  --tint: color-mix(in oklab, var(--accent) 5%, transparent);
+  --subtle: color-mix(in oklab, var(--accent) 9%, transparent);
+}
+
+/* ─── Chrome ────────────────────────────────────────────────────────────── */
+[data-mode='playful'] .cmdbar { height: 60px; }
+[data-mode='playful'] .ctr-toolbar { height: 56px; }
+[data-mode='playful'] .cmdbar-h1 { font-size: 17px; letter-spacing: -0.01em; }
+
+[data-mode='playful'] .rail-brand {
+  width: 34px; height: 34px; border-radius: 12px; font-size: 15px;
+  box-shadow: 0 3px 0 color-mix(in oklab, var(--accent) 45%, var(--bg));
+}
+[data-mode='playful'] .rail-item { border-radius: 14px; }
+[data-mode='playful'] .rail-icon { border-radius: 11px; width: 30px; height: 30px; }
+[data-mode='playful'] .rail-item.is-on .rail-icon {
+  background: var(--accent); color: var(--bg); border-color: transparent;
+}
+[data-mode='playful'] .rail-label { font-size: 9px; }
+[data-mode='playful'] .rail-avatar { border-radius: 12px; }
+
+[data-mode='playful'] .cmdbar-search { border-radius: var(--r-ctl); height: 34px; }
+[data-mode='playful'] .cmdbar-kbd,
+[data-mode='playful'] .palette-kbd,
+[data-mode='playful'] .palette-row-k { border-radius: var(--r-chip); }
+[data-mode='playful'] .meter-track,
+[data-mode='playful'] .track { height: 5px; border-radius: 999px; }
+[data-mode='playful'] .meter-fill,
+[data-mode='playful'] .track-fill {
+  height: 5px; border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--accent) 65%, var(--info)),
+    var(--accent)
+  );
+}
+[data-mode='playful'] .track-fill.tone-warn { background: var(--warn); }
+[data-mode='playful'] .rt-toggle { border-radius: 999px; }
+[data-mode='playful'] .rt-toggle-btn { border-radius: 999px; }
+[data-mode='playful'] .rt-toggle-btn.is-on { background: var(--accent); color: var(--bg); }
+
+/* ─── Controls ──────────────────────────────────────────────────────────── */
+[data-mode='playful'] .tool-btn,
+[data-mode='playful'] .pill-btn,
+[data-mode='playful'] .det-action,
+[data-mode='playful'] .sel-btn,
+[data-mode='playful'] .stack-btn,
+[data-mode='playful'] .text-chip,
+[data-mode='playful'] .bin-install { border-radius: 999px; }
+[data-mode='playful'] .tool-btn { padding: 8px 15px; }
+[data-mode='playful'] .tool-btn.is-primary { padding: 8px 18px; }
+[data-mode='playful'] .tool-btn:hover:not(:disabled),
+[data-mode='playful'] .pill-btn:hover,
+[data-mode='playful'] .ov-quick-row:hover,
+[data-mode='playful'] .bin-version:hover,
+[data-mode='playful'] .set-rt-row:hover { transform: var(--lift); }
+
+[data-mode='playful'] .ctr-pills,
+[data-mode='playful'] .ctr-pill,
+[data-mode='playful'] .net-tab { border-radius: 999px; }
+[data-mode='playful'] .ctr-pill.is-on { background: var(--accent); color: var(--bg); }
+[data-mode='playful'] .pill-row .ctr-pill.is-on {
+  background: var(--accent); color: var(--bg); border-color: transparent;
+}
+
+[data-mode='playful'] .row-btn,
+[data-mode='playful'] .icon-btn,
+[data-mode='playful'] .stack-icon,
+[data-mode='playful'] .ctr-rep-btn,
+[data-mode='playful'] .det-close { border-radius: 50%; }
+[data-mode='playful'] .ctr-check,
+[data-mode='playful'] .check-box { border-radius: 6px; }
+
+[data-mode='playful'] .chip,
+[data-mode='playful'] .ctr-group-chip,
+[data-mode='playful'] .scope-badge,
+[data-mode='playful'] .proto-chip,
+[data-mode='playful'] .latest-chip,
+[data-mode='playful'] .det-mount-mode,
+[data-mode='playful'] .ov-stack-chip,
+[data-mode='playful'] .det-exec-code,
+[data-mode='playful'] .ov-act-kind { border-radius: 999px; padding-inline: 9px; }
+
+/* ─── Tables ────────────────────────────────────────────────────────────── */
+/* Status reads as a filled halo rather than a bare dot. */
+[data-mode='playful'] .ctr-dot,
+[data-mode='playful'] .ov-stack-cdot,
+[data-mode='playful'] .det-dot,
+[data-mode='playful'] .ctr-group-dot {
+  box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 0%, transparent);
+}
+[data-mode='playful'] .ctr-dot.st-running,
+[data-mode='playful'] .ov-stack-cdot.st-running,
+[data-mode='playful'] .det-dot.st-running,
+[data-mode='playful'] .ctr-group-dot.tone-ok {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+[data-mode='playful'] .ctr-dot.st-paused,
+[data-mode='playful'] .ov-stack-cdot.st-paused,
+[data-mode='playful'] .ctr-group-dot.tone-part {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 22%, transparent);
+}
+[data-mode='playful'] .ctr-dot.st-bad {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--bad) 22%, transparent);
+}
+
+[data-mode='playful'] .ctr-group {
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  border-top-color: transparent;
+}
+[data-mode='playful'] .ctr-group-name { font-size: 12.5px; }
+[data-mode='playful'] .ctr-name,
+[data-mode='playful'] .img-name,
+[data-mode='playful'] .vol-name,
+[data-mode='playful'] .net-name { font-size: 12.5px; }
+[data-mode='playful'] .ctr-row:hover,
+[data-mode='playful'] .img-row:hover,
+[data-mode='playful'] .vol-row:hover,
+[data-mode='playful'] .net-row:hover,
+[data-mode='playful'] .build-row:hover {
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+[data-mode='playful'] .ctr-rt { width: 7px; height: 7px; }
+[data-mode='playful'] .img-avatar { border-radius: 10px; width: 30px; height: 30px; }
+
+/* ─── Panels ────────────────────────────────────────────────────────────── */
+[data-mode='playful'] .det-pane,
+[data-mode='playful'] .side-pane { background: var(--sunken-2); }
+[data-mode='playful'] .det-tab { border-radius: 999px; }
+[data-mode='playful'] .det-tab.is-on { background: var(--accent); color: var(--bg); }
+[data-mode='playful'] .det-log-row { border-radius: 7px; }
+[data-mode='playful'] .det-mount,
+[data-mode='playful'] .det-exec-row,
+[data-mode='playful'] .reg-row,
+[data-mode='playful'] .cap-row,
+[data-mode='playful'] .ov-quick-row,
+[data-mode='playful'] .bin-check-row,
+[data-mode='playful'] .bin-version,
+[data-mode='playful'] .set-rt-row,
+[data-mode='playful'] .callout { border-radius: var(--r-card); }
+[data-mode='playful'] .ctr-selbar,
+[data-mode='playful'] .palette,
+[data-mode='playful'] .confirm-dialog { border-radius: var(--r-card); }
+[data-mode='playful'] .palette-row { border-radius: var(--r-ctl); }
+
+[data-mode='playful'] .switch { width: 34px; height: 19px; }
+[data-mode='playful'] .switch-knob { width: 15px; height: 15px; }
+[data-mode='playful'] .swatch { border-radius: 50%; }
+[data-mode='playful'] .slider-thumb {
+  width: 14px; height: 14px;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+[data-mode='playful'] .snap-cell { border-radius: 6px; }
+[data-mode='playful'] .spark-bar,
+[data-mode='playful'] .det-stat-bar { border-radius: 999px; }
+[data-mode='playful'] .ctr-bar,
+[data-mode='playful'] .ctr-bar-fill,
+[data-mode='playful'] .layer-fill,
+[data-mode='playful'] .layer-track,
+[data-mode='playful'] .seg-bar,
+[data-mode='playful'] .vol-track,
+[data-mode='playful'] .vol-fill { border-radius: 999px; }
+
+/* ─── Overview ──────────────────────────────────────────────────────────── */
+[data-mode='playful'] .ov-strip-n { font-size: 19px; }
+[data-mode='playful'] .ov-count-v { font-size: 19px; }
+[data-mode='playful'] .ov-engine-icon,
+[data-mode='playful'] .ov-quick-icon,
+[data-mode='playful'] .set-rt-icon { border-radius: 12px; }
+[data-mode='playful'] .bin-icon { border-radius: 14px; }
+[data-mode='playful'] .ov-stack-head {
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mode='playful'] .tool-btn:hover:not(:disabled),
+  [data-mode='playful'] .pill-btn:hover,
+  [data-mode='playful'] .ov-quick-row:hover,
+  [data-mode='playful'] .bin-version:hover,
+  [data-mode='playful'] .set-rt-row:hover { transform: none; }
+}
+
+/* ─── Theme mode picker (Settings → Appearance) ─────────────────────────── */
+.mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode-card {
+  display: flex; align-items: center; gap: 11px; text-align: left; width: 100%;
+  padding: 10px 12px; border-radius: var(--r-ctl); cursor: pointer;
+  background: var(--tint); border: 1px solid transparent;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.mode-card:hover { background: var(--subtle); }
+.mode-card.is-on {
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+/* A miniature of what each mode does to shape and colour. */
+.mode-swatch {
+  width: 34px; height: 34px; flex: none;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  padding: 6px; background: var(--bg); border: 1px solid var(--line);
+}
+.mode-swatch.mode-serious { border-radius: 6px; }
+.mode-swatch.mode-playful { border-radius: 12px; }
+.mode-swatch-bar { height: 3px; background: var(--dim); }
+.mode-swatch.mode-serious .mode-swatch-bar { border-radius: 1px; }
+.mode-swatch.mode-playful .mode-swatch-bar { border-radius: 999px; background: var(--accent); }
+.mode-swatch-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.mode-swatch.mode-playful .mode-swatch-dot {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+.mode-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mode-name { font-weight: 600; font-size: 12px; color: var(--text); }
+.mode-blurb { font-size: 9px; color: var(--dim-80); }

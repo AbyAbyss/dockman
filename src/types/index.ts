@@ -143,6 +143,10 @@ export interface LayerCacheInfo {
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 
+/** Visual personality: shape, density, motion and how loudly colour is used.
+ *  Orthogonal to palette and accent — either mode works with any of them. */
+export type ThemeMode = 'serious' | 'playful';
+
 export type PaletteName = 'ink' | 'paper' | 'slate';
 export type AccentName = 'violet' | 'olive' | 'terracotta' | 'cobalt';
 export type TabPosition = 'top' | 'left';

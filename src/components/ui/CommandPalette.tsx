@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Glyph } from '@/components/ui/Icon';
 import { useAppStore } from '@/store/appStore';
+import { MODES, useThemeStore } from '@/store/themeStore';
 
 interface Command {
   key: string;
@@ -24,6 +25,8 @@ export function CommandPalette({
   const navigate = useNavigate();
   const containers = useAppStore((s) => s.containers);
   const restartAllRunning = useAppStore((s) => s.restartAllRunning);
+  const mode = useThemeStore((s) => s.mode);
+  const setMode = useThemeStore((s) => s.setMode);
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,11 +59,20 @@ export function CommandPalette({
           onClose();
         },
       },
+      {
+        key: '⇧T',
+        label: `Switch to ${MODES[mode === 'serious' ? 'playful' : 'serious'].label} theme`,
+        sub: 'appearance',
+        run: () => {
+          setMode(mode === 'serious' ? 'playful' : 'serious');
+          onClose();
+        },
+      },
       { key: '⌘P', label: 'Pull image…', sub: 'registry', run: go('/images') },
       { key: '⌘B', label: 'New build…', sub: 'builds', run: go('/builds') },
       { key: '⌘,', label: 'Settings', sub: 'navigate', run: go('/settings') },
     ];
-  }, [navigate, onClose, onStopAllRunning, restartAllRunning, running]);
+  }, [navigate, onClose, onStopAllRunning, restartAllRunning, running, mode, setMode]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -5,7 +5,80 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AccentName, PaletteName, TabKey, TabPosition } from '@/types';
+import type {
+  AccentName,
+  PaletteName,
+  TabKey,
+  TabPosition,
+  ThemeMode,
+} from '@/types';
+
+/**
+ * Geometry, density and motion per theme mode. These become CSS custom
+ * properties on `.dockman-root`, so switching mode restyles the whole app
+ * without any component knowing a mode exists.
+ *
+ * `serious` reproduces the Console design exactly. `playful` is a looser,
+ * rounder, more colourful reading of the same layouts.
+ */
+export const MODES: Record<
+  ThemeMode,
+  {
+    label: string;
+    blurb: string;
+    /** Card / control / pill / chip radii. */
+    rCard: number;
+    rCtl: number;
+    rPill: number;
+    rChip: number;
+    /** Table row heights. */
+    rowH: number;
+    groupH: number;
+    /** Card padding, vertical and horizontal. */
+    padY: number;
+    padX: number;
+    /** Transition duration and easing. */
+    dur: number;
+    ease: string;
+    /** Card elevation. */
+    cardShadow: string;
+    /** How far interactive surfaces rise on hover. */
+    lift: string;
+  }
+> = {
+  serious: {
+    label: 'Serious',
+    blurb: 'dense console · square-ish · quiet colour',
+    rCard: 13,
+    rCtl: 8,
+    rPill: 6,
+    rChip: 4,
+    rowH: 40,
+    groupH: 36,
+    padY: 14,
+    padX: 16,
+    dur: 120,
+    ease: 'ease-out',
+    cardShadow: 'none',
+    lift: 'none',
+  },
+  playful: {
+    label: 'Playful',
+    blurb: 'roomier · rounded · colour-forward',
+    rCard: 20,
+    rCtl: 12,
+    rPill: 999,
+    rChip: 999,
+    rowH: 48,
+    groupH: 44,
+    padY: 18,
+    padX: 20,
+    dur: 220,
+    ease: 'cubic-bezier(.34,1.56,.64,1)',
+    cardShadow: '0 2px 0 color-mix(in oklab, var(--text) 6%, transparent)',
+    lift: 'translateY(-1px)',
+  },
+};
 
 export const PALETTES: Record<
   PaletteName,
@@ -24,6 +97,7 @@ export const ACCENTS: Record<AccentName, { hex: string; soft: string }> = {
 };
 
 interface ThemeState {
+  mode: ThemeMode;
   palette: PaletteName;
   accent: AccentName;
   gap: number;
@@ -35,6 +109,7 @@ interface ThemeState {
   translucent: boolean;
   translucency: number;
 
+  setMode: (m: ThemeMode) => void;
   setPalette: (p: PaletteName) => void;
   setAccent: (a: AccentName) => void;
   setGap: (g: number) => void;
@@ -50,6 +125,7 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
+      mode: 'serious',
       palette: 'ink',
       accent: 'violet',
       gap: 14,
@@ -61,6 +137,7 @@ export const useThemeStore = create<ThemeState>()(
       translucent: false,
       translucency: 35,
 
+      setMode: (mode) => set({ mode }),
       setPalette: (palette) => set({ palette }),
       setAccent: (accent) => set({ accent }),
       setGap: (gap) => set({ gap }),

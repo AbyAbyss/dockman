@@ -5,11 +5,17 @@ import { useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/store/appStore';
-import { ACCENTS, PALETTES, useThemeStore } from '@/store/themeStore';
+import { ACCENTS, MODES, PALETTES, useThemeStore } from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
 import { useRuntimes } from '@/hooks/useData';
 import { SystemCommands } from '@/lib/commands';
-import type { AccentName, PaletteName, RuntimeFilter, RuntimeName } from '@/types';
+import type {
+  AccentName,
+  PaletteName,
+  RuntimeFilter,
+  RuntimeName,
+  ThemeMode,
+} from '@/types';
 
 /** Registries are presentational — no backend command lists them yet. */
 const REGISTRIES = [
@@ -226,6 +232,29 @@ export default function Settings() {
         {/* 5 — Appearance */}
         <div className="card set-card">
           <div className="card-title">Appearance</div>
+
+          <div className="section-label">THEME</div>
+          <div className="mode-row">
+            {(Object.keys(MODES) as ThemeMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`mode-card ${theme.mode === m ? 'is-on' : ''}`}
+                onClick={() => theme.setMode(m)}
+                aria-pressed={theme.mode === m}
+              >
+                <span className={`mode-swatch mode-${m}`}>
+                  <span className="mode-swatch-bar" />
+                  <span className="mode-swatch-bar" />
+                  <span className="mode-swatch-dot" />
+                </span>
+                <span className="mode-id">
+                  <span className="mode-name">{MODES[m].label}</span>
+                  <span className="mode-blurb mono">{MODES[m].blurb}</span>
+                </span>
+              </button>
+            ))}
+          </div>
 
           <div className="section-label">PALETTE</div>
           <div className="pill-row">

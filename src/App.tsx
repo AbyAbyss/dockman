@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TABS } from '@/lib/tabs';
 import { SystemCommands } from '@/lib/commands';
 import { useAppStore } from '@/store/appStore';
-import { ACCENTS, PALETTES, useThemeStore } from '@/store/themeStore';
+import { ACCENTS, MODES, PALETTES, useThemeStore } from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
 import { SetupWizard } from '@/components/wizard/SetupWizard';
 import { RUNTIMES } from '@/data/seed';
@@ -34,6 +34,7 @@ export default function App() {
 
   const pal = PALETTES[theme.palette];
   const acc = ACCENTS[theme.accent];
+  const mode = MODES[theme.mode];
 
   // Window translucency: native vibrancy (applied by the Rust side) provides the
   // blur; this CSS alpha controls how much of it shows. Disabled → fully opaque.
@@ -112,12 +113,27 @@ export default function App() {
     '--radius': `${theme.radius}px`,
     '--mono': "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
     '--sans': "'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif",
+
+    // Theme mode — shape, density and motion. Every screen reads these.
+    '--r-card': `${mode.rCard}px`,
+    '--r-ctl': `${mode.rCtl}px`,
+    '--r-pill': `${mode.rPill}px`,
+    '--r-chip': `${mode.rChip}px`,
+    '--row-h': `${mode.rowH}px`,
+    '--group-h': `${mode.groupH}px`,
+    '--pad-y': `${mode.padY}px`,
+    '--pad-x': `${mode.padX}px`,
+    '--dur': `${mode.dur}ms`,
+    '--ease': mode.ease,
+    '--card-shadow': mode.cardShadow,
+    '--lift': mode.lift,
   };
 
   return (
     <div
       className="dockman-root"
       data-theme={theme.palette}
+      data-mode={theme.mode}
       data-tab-pos={theme.tabPosition}
       data-tab-collapsed={theme.tabCollapsed ? 'true' : 'false'}
       data-rt={runtimeFilter}
