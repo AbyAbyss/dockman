@@ -32,6 +32,7 @@ function applyStatus(c: Container, next: ContainerStatus): Container {
 export interface Toast {
   id: number;
   text: string;
+  tone?: 'bad' | 'ok';
 }
 
 let toastSeq = 0;
@@ -60,6 +61,10 @@ interface AppState {
   setRuntimeFilter: (f: RuntimeFilter) => void;
   setQuery: (q: string) => void;
   dismissToast: (id: number) => void;
+  /** Raise a failure from a page-level command call. */
+  reportError: (e: unknown) => void;
+  /** Raise a success notice. */
+  reportOk: (text: string) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setFocusedContainer: (id: string | null) => void;
   setSelectedNetwork: (name: string) => void;
@@ -117,6 +122,11 @@ export const useAppStore = create<AppState>((set, get) => {
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  reportError: (e) => fail(e),
+  reportOk: (text) =>
+    set((s) => ({
+      toasts: [...s.toasts, { id: (toastSeq += 1), text, tone: 'ok' as const }].slice(-4),
+    })),
 
   statusFilter: 'all',
   selection: [],

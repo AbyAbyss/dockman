@@ -193,10 +193,18 @@ export const ContainerCommands = {
   startLogs: (rt: RuntimeName, id: string, tail = 200, timestamps = false) =>
     invoke<void>('get_container_logs', { runtime: rt, id, tail, timestamps }),
   stopLogs: (id: string) => invoke<void>('stop_container_logs', { id }),
-  execStart: (rt: RuntimeName, id: string, shell: string) =>
-    invoke<string>('exec_start', { runtime: rt, id, shell }),
+  execStart: (
+    rt: RuntimeName,
+    id: string,
+    shell: string,
+    cols?: number,
+    rows?: number,
+  ) => invoke<string>('exec_start', { runtime: rt, id, shell, cols, rows }),
+  /** Raw keystrokes — the PTY, not this call, interprets them. */
   execInput: (sessionId: string, input: string) =>
     invoke<void>('exec_input', { sessionId, input }),
+  execResize: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>('exec_resize', { sessionId, cols, rows }),
   execStop: (sessionId: string) => invoke<void>('exec_stop', { sessionId }),
 };
 

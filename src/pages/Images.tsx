@@ -39,6 +39,8 @@ export default function Images() {
   const query = useAppStore((s) => s.query);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const containers = useAppStore((s) => s.containers);
+  const reportError = useAppStore((s) => s.reportError);
+  const reportOk = useAppStore((s) => s.reportOk);
   const imagesRes = useImages(runtimeFilter);
   const images = imagesRes.data;
   const loading = imagesRes.loading;
@@ -88,7 +90,7 @@ export default function Images() {
       const rt = runtimeFilter === 'podman' ? 'podman' : 'docker';
       ImageCommands.pull(rt, name)
         .then(() => imagesRes.refetch())
-        .catch(() => undefined);
+        .catch(reportError);
     }
 
     // The CLI does not stream a percentage, so the bar is a progress
@@ -110,27 +112,39 @@ export default function Images() {
     if (imagesRes.live) {
       ImageCommands.remove(img.rt, img.id)
         .then(() => imagesRes.refetch())
-        .catch(() => undefined);
+        .catch(reportError);
     }
     if (selected === img.id) setSelected(null);
   };
 
   const pushImage = () => {
     if (!detail) return;
-    ImageCommands.push(detail.rt, `${detail.name}:${detail.tag}`).catch(() => undefined);
+    ImageCommands.push(detail.rt, `${detail.name}:${detail.tag}`)
+      .then(() => reportOk(`Pushed ${detail.name}:${detail.tag}`))
+      .catch(reportError);
   };
 
-  const pruneImages = () => {
-    ImageCommands.prune(runtimeFilter === 'podman' ? 'podman' : 'docker')
-      .then(() => imagesRes.refetch())
-      .catch(() => undefined);
+  const pruneImages = async () => {
+    // 'all' means both engines — pruning only docker silently left podman's
+    // unreferenced images behind, which read as "the button does nothing".
+    const targets: RuntimeName[] =
+      runtimeFilter === 'all' ? ['docker', 'podman'] : [runtimeFilter];
+    const results = await Promise.allSettled(
+      targets.map((rt) => ImageCommands.prune(rt)),
+    );
+    const failed = results.filter((r) => r.status === 'rejected');
+    failed.forEach((r) => reportError((r as PromiseRejectedResult).reason));
+    if (failed.length < targets.length) {
+      reportOk(`Pruned unused images · reclaimed about ${fmtGB(idleMB)}`);
+    }
+    imagesRes.refetch();
   };
 
   const applyTag = () => {
     if (!detail || !tagValue.trim()) return;
     ImageCommands.tag(detail.rt, `${detail.name}:${detail.tag}`, tagValue.trim())
       .then(() => imagesRes.refetch())
-      .catch(() => undefined);
+      .catch(reportError);
     setTagging(false);
     setTagValue('');
   };

@@ -38,6 +38,8 @@ function fmtGB(mb: number): string {
 export default function Volumes() {
   const query = useAppStore((s) => s.query);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
+  const reportError = useAppStore((s) => s.reportError);
+  const reportOk = useAppStore((s) => s.reportOk);
   const volumesRes = useVolumes(runtimeFilter);
   const volumes = volumesRes.data;
   const loading = volumesRes.loading;
@@ -64,7 +66,7 @@ export default function Volumes() {
     if (!name) return;
     VolumeCommands.create(createRt, name)
       .then(() => volumesRes.refetch())
-      .catch(() => undefined);
+      .catch(reportError);
     setNewName('');
     setCreating(false);
   };
@@ -72,13 +74,19 @@ export default function Volumes() {
   const deleteVolume = (rt: RuntimeName, name: string) => {
     VolumeCommands.remove(rt, name)
       .then(() => volumesRes.refetch())
-      .catch(() => undefined);
+      .catch(reportError);
   };
 
-  const pruneVolumes = () => {
-    VolumeCommands.prune(createRt)
-      .then(() => volumesRes.refetch())
-      .catch(() => undefined);
+  const pruneVolumes = async () => {
+    const targets: RuntimeName[] =
+      runtimeFilter === 'all' ? ['docker', 'podman'] : [runtimeFilter];
+    const results = await Promise.allSettled(
+      targets.map((rt) => VolumeCommands.prune(rt)),
+    );
+    const failed = results.filter((r) => r.status === 'rejected');
+    failed.forEach((r) => reportError((r as PromiseRejectedResult).reason));
+    if (failed.length < targets.length) reportOk('Pruned unattached volumes');
+    volumesRes.refetch();
   };
 
   const snapOk = SNAPSHOTS.filter((s) => s === 'ok').length;

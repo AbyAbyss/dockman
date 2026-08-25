@@ -2,16 +2,13 @@
 //
 // Closed by default: the page mounts it only while a container is focused, and
 // the ✕ in the header clears that focus. Width is dragged by the handle the
-// page renders to its left. Five tabs: Logs, Shell, Stats, Env, Mounts.
+// page renders to its left. Tabs: Logs, Shell, Stats, Env, Mounts, Inspect.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { ContainerResourcesModal } from '@/components/ui/ContainerResourcesModal';
-import {
-  ContainerCommands,
-  containerLogsEvent,
-  execOutputEvent,
-} from '@/lib/commands';
+import { ShellTerminal } from './ShellTerminal';
+import { ContainerCommands, containerLogsEvent } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
 import { useAppStore } from '@/store/appStore';
 import { RUNTIMES } from '@/data/seed';
@@ -229,151 +226,11 @@ function InspectTab({ container }: { container: Container }) {
   );
 }
 
-interface ExecEntry {
-  cmd: string;
-  exit: number;
-  when: string;
-}
-
 function ShellTab({ container }: { container: Container }) {
   const live = useAppStore((s) => s.live);
-  const [lines, setLines] = useState<{ prompt: string; text: string }[]>([]);
-  const [cmd, setCmd] = useState('');
-  const [ready, setReady] = useState(false);
-  const [history, setHistory] = useState<ExecEntry[]>([]);
-  const sessionRef = useRef<string | null>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
-
-  const shell = '/bin/sh';
-
-  useEffect(() => {
-    if (!live) return;
-    let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
-    setReady(false);
-    setLines([{ prompt: '', text: `connecting · ${shell} …` }]);
-    ContainerCommands.execStart(container.rt, container.id, shell)
-      .then(async (id) => {
-        if (cancelled) {
-          ContainerCommands.execStop(id).catch(() => undefined);
-          return;
-        }
-        sessionRef.current = id;
-        setReady(true);
-        setLines([{ prompt: '', text: `● attached — ${shell} in ${container.name}` }]);
-        unlisten = await listen<string>(execOutputEvent(id), (l) =>
-          setLines((prev) => [...prev.slice(-400), { prompt: '', text: l }]),
-        );
-      })
-      .catch((e) => setLines([{ prompt: '', text: `exec failed: ${String(e)}` }]));
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      const id = sessionRef.current;
-      sessionRef.current = null;
-      if (id) ContainerCommands.execStop(id).catch(() => undefined);
-    };
-  }, [live, container.rt, container.id, container.name]);
-
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [lines.length]);
-
-  const send = () => {
-    const text = cmd.trim();
-    if (!text) return;
-    setLines((prev) => [...prev, { prompt: '/app #', text }]);
-    setHistory((prev) => [{ cmd: text, exit: 0, when: 'just now' }, ...prev].slice(0, 6));
-    const id = sessionRef.current;
-    if (id) ContainerCommands.execInput(id, text).catch(() => undefined);
-    setCmd('');
-  };
-
-  const running = container.status === 'running';
-
-  return (
-    <>
-      <div className="det-shell" ref={bodyRef}>
-        <div className="det-shell-head mono">
-          <span className="det-shell-dot" />
-          <span>
-            {live && ready ? 'attached' : running ? 'detached' : 'not running'} · sh ·{' '}
-            {container.name} · {container.rt}
-          </span>
-        </div>
-
-        <div className="det-shell-body">
-          {!live && lines.length === 0 && (
-            <>
-              <div className="det-shell-line">
-                <span className="det-shell-prompt">/app #</span>
-                <span className="det-shell-text">ps aux | head -3</span>
-              </div>
-              <div className="det-shell-line">
-                <span className="det-shell-out">
-                  PID USER TIME COMMAND{'\n'}  1 root 0:04 {container.image.split(':')[0]}
-                </span>
-              </div>
-            </>
-          )}
-          {lines.map((l, i) => (
-            <div key={i} className="det-shell-line">
-              {l.prompt && <span className="det-shell-prompt">{l.prompt}</span>}
-              <span className={l.prompt ? 'det-shell-text' : 'det-shell-out'}>
-                {l.text}
-              </span>
-            </div>
-          ))}
-          <div className="det-shell-line">
-            <span className="det-shell-prompt">/app #</span>
-            <span className="det-shell-cursor" />
-          </div>
-        </div>
-
-        {history.length > 0 && (
-          <div className="det-exec">
-            <div className="det-section-label">EXEC HISTORY</div>
-            {history.map((e, i) => (
-              <div key={i} className="det-exec-row">
-                <span className={`det-exec-code mono ${e.exit === 0 ? 'is-ok' : 'is-bad'}`}>
-                  {e.exit}
-                </span>
-                <div className="det-exec-body">
-                  <div className="det-exec-cmd mono">{e.cmd}</div>
-                  <div className="det-exec-meta mono">
-                    {container.name} · {e.when}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="text-btn"
-                  onClick={() => setCmd(e.cmd)}
-                >
-                  re-run
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="det-shell-input">
-        <span className="det-shell-prompt mono">$</span>
-        <input
-          className="mono"
-          placeholder={running ? 'run a command…' : 'container is not running'}
-          disabled={!running}
-          value={cmd}
-          onChange={(e) => setCmd(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') send();
-          }}
-        />
-        <span className="det-shell-hint mono">⏎ run · ⌃D detach</span>
-      </div>
-    </>
-  );
+  return <ShellTerminal container={container} live={live} />;
 }
+
 
 const SERIES_LEN = 24;
 

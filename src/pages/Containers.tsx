@@ -16,7 +16,8 @@ import {
   type DetailTab,
 } from '@/components/containers/ContainerDetailPane';
 import { useAppStore } from '@/store/appStore';
-import { ComposeCommands, RuntimeCommands } from '@/lib/commands';
+import { ComposeCommands, RuntimeCommands, SystemCommands } from '@/lib/commands';
+import { splitPorts } from '@/lib/parsers';
 import { useRuntimes } from '@/hooks/useData';
 import { RUNTIMES } from '@/data/seed';
 import type { Container, RuntimeName, StatusFilter } from '@/types';
@@ -25,6 +26,57 @@ const PANE_MIN = 280;
 const PANE_MAX = 560;
 const PANE_DEFAULT = 372;
 const PANE_KEY = 'dockman-detail-pane-width';
+
+const PORT_CHIPS = 2;
+
+/**
+ * Ports as chips rather than the runtime's raw string.
+ *
+ * `0.0.0.0:1025->1025/tcp, [::]:8025->8025/tcp, 1110/tcp` wrapped to three
+ * lines and pushed the row height out. Published host ports are the part a
+ * user acts on, so they show as chips that open the port; unpublished ones
+ * collapse into a count. The full string stays available on hover.
+ */
+function PortsCell({ raw }: { raw: string }) {
+  const all = splitPorts(raw);
+  const published = all.filter((p) => p.host);
+  const internal = all.length - published.length;
+
+  if (all.length === 0) return <span className="col-ports port-none mono">—</span>;
+
+  const shown = published.slice(0, PORT_CHIPS);
+  const morePublished = published.length - shown.length;
+
+  return (
+    <span className="col-ports port-cell" title={raw}>
+      {shown.map((p) => (
+        <button
+          key={`${p.host}/${p.proto}`}
+          type="button"
+          className="port-chip mono"
+          title={`open localhost:${p.host} · container ${p.container}/${p.proto}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            SystemCommands.openUrl(`http://localhost:${p.host}`).catch(() => undefined);
+          }}
+        >
+          {p.host}
+        </button>
+      ))}
+      {morePublished > 0 && (
+        <span className="port-more mono">+{morePublished}</span>
+      )}
+      {published.length === 0 && internal > 0 && (
+        <span className="port-none mono">internal</span>
+      )}
+      {published.length > 0 && internal > 0 && (
+        <span className="port-more mono" title={`${internal} unpublished`}>
+          ·{internal}
+        </span>
+      )}
+    </span>
+  );
+}
 
 interface StackInfo {
   file: string;
@@ -552,7 +604,7 @@ export default function Containers() {
                       </div>
 
                       <span className="col-image mono">{c.image}</span>
-                      <span className="col-ports mono">{c.port}</span>
+                      <PortsCell raw={c.port} />
 
                       <div className="col-cpu">
                         <div className="ctr-bar">

@@ -8,7 +8,7 @@ import { useAppStore } from '@/store/appStore';
 
 const DISMISS_MS = 6000;
 
-function Toast({ id, text }: { id: number; text: string }) {
+function Toast({ id, text, tone }: { id: number; text: string; tone?: 'bad' | 'ok' }) {
   const dismiss = useAppStore((s) => s.dismissToast);
 
   useEffect(() => {
@@ -17,9 +17,9 @@ function Toast({ id, text }: { id: number; text: string }) {
   }, [id, dismiss]);
 
   return (
-    <div className="toast" role="status">
+    <div className={`toast tone-${tone ?? 'bad'}`} role="status">
       <span className="toast-icon">
-        <Glyph name="close" size={12} sw={2} />
+        <Glyph name={tone === 'ok' ? 'check' : 'close'} size={12} sw={2} />
       </span>
       <span className="toast-text mono">{text}</span>
       <button
@@ -40,7 +40,7 @@ export function Toasts() {
   return (
     <div className="toast-host" aria-live="polite">
       {toasts.map((t) => (
-        <Toast key={t.id} id={t.id} text={t.text} />
+        <Toast key={t.id} id={t.id} text={t.text} tone={t.tone} />
       ))}
     </div>
   );

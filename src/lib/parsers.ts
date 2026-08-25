@@ -185,3 +185,48 @@ export function parseStat(o: Raw): ContainerStat {
     mem: Math.round(memToMB(str(o, 'MemUsage', 'mem_usage', 'MemoryUsage'))),
   };
 }
+
+// ─── Ports ───────────────────────────────────────────────────────────────────
+
+export interface PortBinding {
+  /** Host port, when the container port is published. */
+  host: string | null;
+  container: string;
+  proto: string;
+}
+
+/**
+ * Split the runtime's port string into bindings.
+ *
+ * The CLIs emit things like
+ *   `0.0.0.0:1025->1025/tcp, [::]:8025->8025/tcp, 1110/tcp`
+ * which is far too long to show verbatim in a table cell — it wrapped to three
+ * lines and blew out the row height. Published bindings are what a user acts
+ * on, so they come first and unpublished ones are counted separately.
+ */
+export function splitPorts(raw: string): PortBinding[] {
+  if (!raw || raw === '—') return [];
+  const seen = new Set<string>();
+  const out: PortBinding[] = [];
+  for (const part of raw.split(',').map((p) => p.trim()).filter(Boolean)) {
+    // Runtime form: `<addr>:<host>-><container>/<proto>`, or `<container>/<proto>`
+    // when unpublished. The seed data uses the shorter `<host>:<container>`
+    // and bare `<port>` forms, so both are accepted.
+    const published = part.match(/^(?:.*:)?(\d+)->(\d+)\/(\w+)$/);
+    const internal = part.match(/^(\d+)\/(\w+)$/);
+    const pair = part.match(/^(\d+):(\d+)$/);
+    const bare = part.match(/^(\d+)$/);
+    let b: PortBinding | null = null;
+    if (published) b = { host: published[1], container: published[2], proto: published[3] };
+    else if (internal) b = { host: null, container: internal[1], proto: internal[2] };
+    else if (pair) b = { host: pair[1], container: pair[2], proto: 'tcp' };
+    else if (bare) b = { host: bare[1], container: bare[1], proto: 'tcp' };
+    if (!b) continue;
+    // IPv4 and IPv6 bindings of the same port arrive as separate entries.
+    const key = `${b.host ?? '-'}:${b.container}/${b.proto}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(b);
+  }
+  return out;
+}

@@ -20,6 +20,7 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .manage(commands::Registry::default())
+        .manage(std::sync::Arc::new(commands::exec::ExecSessions::default()))
         .invoke_handler(tauri::generate_handler![
             // runtime
             runtime::detect_runtime,
