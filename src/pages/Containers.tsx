@@ -5,7 +5,7 @@
 // detail pane (mounted only while a container is focused) sits to its right
 // behind a drag handle.
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { ComposeLaunchModal } from '@/components/ui/ComposeLaunchModal';
@@ -365,7 +365,9 @@ export default function Containers() {
             const groupSelected = ids.every((id) => selection.includes(id));
 
             return (
-              <Fragment key={g.key}>
+              // Serious renders this wrapper as plain flow; Playful styles it
+              // as a standalone outlined card per stack.
+              <div className="ctr-stack" key={g.key}>
                 <div className="ctr-group">
                   <button
                     type="button"
@@ -461,6 +463,19 @@ export default function Containers() {
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* Per-stack column strip — Playful only; Serious uses the
+                    single header above the body. */}
+                <div className="ctr-stack-thead mono" aria-hidden="true">
+                  <span className="ctr-check-spacer" />
+                  <span className="col-name">NAME</span>
+                  <span className="col-image">IMAGE</span>
+                  <span className="col-ports">PORTS</span>
+                  <span className="col-cpu">CPU</span>
+                  <span className="col-mem">MEM</span>
+                  <span className="col-uptime">UPTIME</span>
+                  <span className="col-act">ACTIONS</span>
                 </div>
 
                 {g.items.map((c) => {
@@ -576,7 +591,7 @@ export default function Containers() {
                     </div>
                   );
                 })}
-              </Fragment>
+              </div>
             );
           })}
         </div>

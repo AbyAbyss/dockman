@@ -256,6 +256,12 @@ export default function Settings() {
             ))}
           </div>
 
+          {theme.mode === 'playful' && (
+            <div className="bin-sub mono">
+              Playful ships its own palette — the choices below apply to Serious.
+            </div>
+          )}
+
           <div className="section-label">PALETTE</div>
           <div className="pill-row">
             {(Object.keys(PALETTES) as PaletteName[]).map((p) => (

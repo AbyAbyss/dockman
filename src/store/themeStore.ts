@@ -37,18 +37,22 @@ export const MODES: Record<
     /** Card padding, vertical and horizontal. */
     padY: number;
     padX: number;
+    /** Border weight for controls and for cards. */
+    bw: number;
+    bwCard: number;
     /** Transition duration and easing. */
     dur: number;
     ease: string;
     /** Card elevation. */
     cardShadow: string;
-    /** How far interactive surfaces rise on hover. */
-    lift: string;
+    /** Raised-control elevation, and where it goes on press. */
+    btnShadow: string;
+    btnShadowActive: string;
   }
 > = {
   serious: {
     label: 'Serious',
-    blurb: 'dense console · square-ish · quiet colour',
+    blurb: 'dense console · quiet colour',
     rCard: 13,
     rCtl: 8,
     rPill: 6,
@@ -57,26 +61,33 @@ export const MODES: Record<
     groupH: 36,
     padY: 14,
     padX: 16,
+    bw: 1,
+    bwCard: 1,
     dur: 120,
     ease: 'ease-out',
     cardShadow: 'none',
-    lift: 'none',
+    btnShadow: 'none',
+    btnShadowActive: 'none',
   },
+  // Neo-brutalist: ink outlines, hard offset shadows, flat bright fills.
   playful: {
     label: 'Playful',
-    blurb: 'roomier · rounded · colour-forward',
+    blurb: 'ink outlines · hard shadows · bright',
     rCard: 20,
-    rCtl: 12,
+    rCtl: 999,
     rPill: 999,
     rChip: 999,
-    rowH: 48,
-    groupH: 44,
-    padY: 18,
-    padX: 20,
-    dur: 220,
-    ease: 'cubic-bezier(.34,1.56,.64,1)',
-    cardShadow: '0 2px 0 color-mix(in oklab, var(--text) 6%, transparent)',
-    lift: 'translateY(-1px)',
+    rowH: 52,
+    groupH: 50,
+    padY: 16,
+    padX: 18,
+    bw: 2,
+    bwCard: 3,
+    dur: 90,
+    ease: 'ease-out',
+    cardShadow: '4px 4px 0 var(--ink)',
+    btnShadow: '3px 3px 0 var(--ink)',
+    btnShadowActive: '1px 1px 0 var(--ink)',
   },
 };
 
@@ -87,6 +98,29 @@ export const PALETTES: Record<
   ink:   { bg: '#0d0c0a', surface: '#1f1c17', text: '#ece6d6', dim: '#8a8473', line: 'rgba(236,230,214,0.13)', subtle: 'rgba(236,230,214,0.07)', tint: 'rgba(236,230,214,0.025)' },
   paper: { bg: '#ebe6db', surface: '#fbf8f1', text: '#1d1b16', dim: '#7a7464', line: 'rgba(29,27,22,0.10)',    subtle: 'rgba(29,27,22,0.04)',     tint: 'rgba(29,27,22,0.02)' },
   slate: { bg: '#0d1117', surface: '#161b22', text: '#e6edf3', dim: '#7d8590', line: 'rgba(230,237,243,0.10)', subtle: 'rgba(230,237,243,0.05)', tint: 'rgba(230,237,243,0.02)' },
+};
+
+/**
+ * Playful ships its own palette. The look is built on a cream ground with ink
+ * outlines and flat bright fills — it does not survive being recoloured, so it
+ * replaces the palette / accent choice rather than layering over it.
+ */
+export const PLAYFUL_PALETTE = {
+  ink: '#1c1a17',
+  bg: '#f5f0e4',
+  surface: '#fffdf6',
+  text: '#1c1a17',
+  dim: '#6b6455',
+  line: '#1c1a17',
+  subtle: '#f5f0e4',
+  tint: '#fffdf6',
+  accent: '#22c79b',
+  accentSoft: '#b9f5e0',
+  warn: '#ffd466',
+  bad: '#ef5b4c',
+  info: '#bfe0ff',
+  rtDocker: '#2496ed',
+  rtPodman: '#8b3fd9',
 };
 
 export const ACCENTS: Record<AccentName, { hex: string; soft: string }> = {

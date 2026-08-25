@@ -8,7 +8,13 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TABS } from '@/lib/tabs';
 import { SystemCommands } from '@/lib/commands';
 import { useAppStore } from '@/store/appStore';
-import { ACCENTS, MODES, PALETTES, useThemeStore } from '@/store/themeStore';
+import {
+  ACCENTS,
+  MODES,
+  PALETTES,
+  PLAYFUL_PALETTE,
+  useThemeStore,
+} from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
 import { SetupWizard } from '@/components/wizard/SetupWizard';
 import { RUNTIMES } from '@/data/seed';
@@ -43,7 +49,8 @@ export default function App() {
     translucency === 0
       ? c
       : `color-mix(in oklab, ${c} ${100 - translucency}%, transparent)`;
-  const winBg = mix(pal.bg);
+  // Playful is opaque cream by design; translucency only applies to Serious.
+  const winBg = theme.mode === 'playful' ? PLAYFUL_PALETTE.bg : mix(pal.bg);
 
   // Live mode: poll the real container inventory. Seed mode: gentle CPU drift
   // so the prototype UI still feels alive.
@@ -91,28 +98,37 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Playful carries its own palette, so it replaces the palette / accent
+  // choice outright — those pickers only apply to Serious.
+  const pf = theme.mode === 'playful';
+  const P = PLAYFUL_PALETTE;
+
   const rootStyle: Record<string, string> = {
-    '--bg': pal.bg,
-    '--surface': mix(pal.surface),
-    '--text': pal.text,
-    '--dim': pal.dim,
-    '--line': pal.line,
-    '--subtle': pal.subtle,
-    '--tint': pal.tint,
-    '--accent': acc.hex,
-    '--accent-soft': acc.soft,
-    '--rt-docker': RUNTIMES.docker.accent,
+    '--bg': pf ? P.bg : pal.bg,
+    '--surface': pf ? P.surface : mix(pal.surface),
+    '--text': pf ? P.text : pal.text,
+    '--dim': pf ? P.dim : pal.dim,
+    '--line': pf ? P.line : pal.line,
+    '--subtle': pf ? P.subtle : pal.subtle,
+    '--tint': pf ? P.tint : pal.tint,
+    '--accent': pf ? P.accent : acc.hex,
+    '--accent-soft': pf ? P.accentSoft : acc.soft,
+    '--rt-docker': pf ? P.rtDocker : RUNTIMES.docker.accent,
     '--rt-docker-soft': RUNTIMES.docker.soft,
-    '--rt-podman': RUNTIMES.podman.accent,
+    '--rt-podman': pf ? P.rtPodman : RUNTIMES.podman.accent,
     '--rt-podman-soft': RUNTIMES.podman.soft,
-    '--ok': acc.hex,
-    '--warn': '#e0b265',
-    '--bad': '#e07a5f',
-    '--info': '#8ab4f8',
+    '--ok': pf ? P.accent : acc.hex,
+    '--warn': pf ? P.warn : '#e0b265',
+    '--bad': pf ? P.bad : '#e07a5f',
+    '--info': pf ? P.info : '#8ab4f8',
     '--gap': `${theme.gap}px`,
     '--radius': `${theme.radius}px`,
-    '--mono': "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
-    '--sans': "'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif",
+    '--mono': pf
+      ? "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+      : "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+    '--sans': pf
+      ? "'Outfit', ui-sans-serif, system-ui, sans-serif"
+      : "'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif",
 
     // Theme mode — shape, density and motion. Every screen reads these.
     '--r-card': `${mode.rCard}px`,
@@ -123,10 +139,13 @@ export default function App() {
     '--group-h': `${mode.groupH}px`,
     '--pad-y': `${mode.padY}px`,
     '--pad-x': `${mode.padX}px`,
+    '--bw': `${mode.bw}px`,
+    '--bw-card': `${mode.bwCard}px`,
     '--dur': `${mode.dur}ms`,
     '--ease': mode.ease,
     '--card-shadow': mode.cardShadow,
-    '--lift': mode.lift,
+    '--btn-shadow': mode.btnShadow,
+    '--btn-shadow-active': mode.btnShadowActive,
   };
 
   return (
