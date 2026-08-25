@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -129,6 +130,21 @@ pub async fn get_runtime_path(runtime: String) -> Result<String, String> {
         "podman" => cfg.podman_path.unwrap_or_default(),
         _ => String::new(),
     })
+}
+
+/// Open a native file picker for a runtime binary and, if the user picks one,
+/// persist it as that runtime's path. Returns the chosen path, or `None` when
+/// the dialog was cancelled.
+#[tauri::command]
+pub async fn pick_runtime_path(
+    app: tauri::AppHandle,
+    runtime: String,
+) -> Result<Option<String>, String> {
+    let picked = app.dialog().file().blocking_pick_file();
+    let Some(file) = picked else { return Ok(None) };
+    let path = file.to_string();
+    set_runtime_path(runtime, path.clone()).await?;
+    Ok(Some(path))
 }
 
 #[tauri::command]

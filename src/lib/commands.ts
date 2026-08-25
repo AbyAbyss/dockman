@@ -126,6 +126,9 @@ export const RuntimeCommands = {
   setMode: (mode: string) => invoke<void>('set_runtime_mode', { mode }),
   setPath: (runtime: RuntimeName, path: string) =>
     invoke<void>('set_runtime_path', { runtime, path }),
+  /** Native picker; resolves to the chosen path, or null if cancelled. */
+  pickPath: (runtime: RuntimeName) =>
+    invoke<string | null>('pick_runtime_path', { runtime }),
   startDaemon: (runtime: RuntimeName) =>
     invoke<void>('start_runtime_daemon', { runtime }),
   stopDaemon: (runtime: RuntimeName) =>
@@ -187,8 +190,8 @@ export const ContainerCommands = {
     }
     return map;
   },
-  startLogs: (rt: RuntimeName, id: string, tail = 200) =>
-    invoke<void>('get_container_logs', { runtime: rt, id, tail, timestamps: false }),
+  startLogs: (rt: RuntimeName, id: string, tail = 200, timestamps = false) =>
+    invoke<void>('get_container_logs', { runtime: rt, id, tail, timestamps }),
   stopLogs: (id: string) => invoke<void>('stop_container_logs', { id }),
   execStart: (rt: RuntimeName, id: string, shell: string) =>
     invoke<string>('exec_start', { runtime: rt, id, shell }),

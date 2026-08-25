@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { SkeletonRows } from '@/components/ui/Skeleton';
 import { useAppStore } from '@/store/appStore';
 import { useImages } from '@/hooks/useData';
 import { ImageCommands } from '@/lib/commands';
@@ -40,6 +41,7 @@ export default function Images() {
   const containers = useAppStore((s) => s.containers);
   const imagesRes = useImages(runtimeFilter);
   const images = imagesRes.data;
+  const loading = imagesRes.loading;
 
   // USED BY names the containers actually running an image, not its pull count.
   const usersOf = (img: ImageItem) =>
@@ -198,7 +200,10 @@ export default function Images() {
         </div>
 
         <div className="ctr-body">
-          {filtered.length === 0 && (
+          {filtered.length === 0 && loading && (
+            <SkeletonRows rows={7} variant="image" />
+          )}
+          {filtered.length === 0 && !loading && (
             <div className="empty">
               <Glyph name="image" size={24} />
               <div>

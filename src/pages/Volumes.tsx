@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { SkeletonRows } from '@/components/ui/Skeleton';
 import { useAppStore } from '@/store/appStore';
 import { useVolumes } from '@/hooks/useData';
 import { VolumeCommands } from '@/lib/commands';
@@ -39,6 +40,7 @@ export default function Volumes() {
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const volumesRes = useVolumes(runtimeFilter);
   const volumes = volumesRes.data;
+  const loading = volumesRes.loading;
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -142,7 +144,10 @@ export default function Volumes() {
         </div>
 
         <div className="ctr-body">
-          {filtered.length === 0 && (
+          {filtered.length === 0 && loading && (
+            <SkeletonRows rows={7} variant="volume" />
+          )}
+          {filtered.length === 0 && !loading && (
             <div className="empty">
               <Glyph name="volume" size={24} />
               <div>

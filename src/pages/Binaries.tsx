@@ -331,10 +331,16 @@ export default function Binaries() {
                 <button
                   type="button"
                   className="text-btn"
+                  disabled={!live}
+                  title={live ? 'Choose the binary to use' : 'Requires the desktop app'}
                   onClick={() =>
-                    BinaryCommands.defaultInstallDir()
-                      .then((d) => RuntimeCommands.setPath(rt, d))
-                      .then(() => refetchRuntimes())
+                    RuntimeCommands.pickPath(rt)
+                      .then((picked) => {
+                        if (picked) {
+                          refetchRuntimes();
+                          loadSetup();
+                        }
+                      })
                       .catch(() => undefined)
                   }
                 >

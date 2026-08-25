@@ -10,12 +10,14 @@ import { Glyph } from '@/components/ui/Icon';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { ComposeLaunchModal } from '@/components/ui/ComposeLaunchModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EngineDown, SkeletonRows } from '@/components/ui/Skeleton';
 import {
   ContainerDetailPane,
   type DetailTab,
 } from '@/components/containers/ContainerDetailPane';
 import { useAppStore } from '@/store/appStore';
-import { ComposeCommands } from '@/lib/commands';
+import { ComposeCommands, RuntimeCommands } from '@/lib/commands';
+import { useRuntimes } from '@/hooks/useData';
 import { RUNTIMES } from '@/data/seed';
 import type { Container, RuntimeName, StatusFilter } from '@/types';
 
@@ -58,7 +60,10 @@ export default function Containers() {
   const restartStack = useAppStore((s) => s.restartStack);
   const refresh = useAppStore((s) => s.refresh);
   const live = useAppStore((s) => s.live);
+  const loading = useAppStore((s) => s.loading);
+  const { runtimes, refetch: refetchRuntimes } = useRuntimes();
 
+  const [startingEngine, setStartingEngine] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('logs');
   const [paneWidth, setPaneWidth] = useState(() => {
     const stored = Number(localStorage.getItem(PANE_KEY));
@@ -254,6 +259,27 @@ export default function Containers() {
     }
   };
 
+  // The engine that would be serving this list, when it is not running.
+  const downEngine =
+    runtimeFilter !== 'all'
+      ? runtimes[runtimeFilter].running
+        ? null
+        : runtimeFilter
+      : (['docker', 'podman'] as RuntimeName[]).every((rt) => !runtimes[rt].running)
+        ? 'docker'
+        : null;
+
+  const startEngine = (rt: string) => {
+    setStartingEngine(true);
+    RuntimeCommands.startDaemon(rt as RuntimeName)
+      .catch(() => undefined)
+      .finally(() => {
+        refetchRuntimes();
+        refresh();
+        setStartingEngine(false);
+      });
+  };
+
   const openRow = (c: Container, tab: DetailTab = 'logs') => {
     setFocusedContainer(c.id);
     setDetailTab(tab);
@@ -328,7 +354,21 @@ export default function Containers() {
 
         {/* ─── Body ────────────────────────────────────────────────────── */}
         <div className="ctr-body">
-          {groups.length === 0 && (
+          {/* First load: skeleton rows at the table's own row height. */}
+          {groups.length === 0 && loading && containers.length === 0 && (
+            <SkeletonRows rows={8} variant="container" />
+          )}
+
+          {/* Nothing to list because the engine that would serve it is down. */}
+          {groups.length === 0 && !loading && containers.length === 0 && downEngine && (
+            <EngineDown
+              runtime={downEngine}
+              starting={startingEngine}
+              onStart={() => startEngine(downEngine)}
+            />
+          )}
+
+          {groups.length === 0 && !loading && !(containers.length === 0 && downEngine) && (
             <div className="empty">
               <Glyph name="container" size={24} />
               <div>

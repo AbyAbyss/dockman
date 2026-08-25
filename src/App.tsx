@@ -5,6 +5,7 @@ import { CommandBar } from '@/components/layout/CommandBar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Toasts } from '@/components/ui/Toasts';
 import { TABS } from '@/lib/tabs';
 import { SystemCommands } from '@/lib/commands';
 import { useAppStore } from '@/store/appStore';
@@ -153,7 +154,6 @@ export default function App() {
       className="dockman-root"
       data-theme={theme.palette}
       data-mode={theme.mode}
-      data-tab-pos={theme.tabPosition}
       data-tab-collapsed={theme.tabCollapsed ? 'true' : 'false'}
       data-rt={runtimeFilter}
       style={rootStyle as CSSProperties}
@@ -184,6 +184,7 @@ export default function App() {
           onClose={() => setConfirmStopAll(false)}
         />
       )}
+      <Toasts />
       {!wizardCompleted && <SetupWizard />}
     </div>
   );

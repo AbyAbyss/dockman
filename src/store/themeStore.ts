@@ -1,7 +1,5 @@
-// Theme + layout preferences, persisted to localStorage.
-// Mirrors the design prototype's "tweaks" — palette, accent, geometry and the
-// tab-bar layout — but exposed as a typed Zustand store instead of an
-// EDITMODE block.
+// Theme + layout preferences, persisted to localStorage: theme mode, palette,
+// accent and geometry.
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -9,7 +7,6 @@ import type {
   AccentName,
   PaletteName,
   TabKey,
-  TabPosition,
   ThemeMode,
 } from '@/types';
 
@@ -18,8 +15,8 @@ import type {
  * properties on `.dockman-root`, so switching mode restyles the whole app
  * without any component knowing a mode exists.
  *
- * `serious` reproduces the Console design exactly. `playful` is a looser,
- * rounder, more colourful reading of the same layouts.
+ * `serious` reproduces the Console design. `playful` is the neo-brutalist
+ * design, which also brings its own palette (see PLAYFUL_PALETTE).
  */
 export const MODES: Record<
   ThemeMode,
@@ -136,7 +133,6 @@ interface ThemeState {
   accent: AccentName;
   gap: number;
   radius: number;
-  tabPosition: TabPosition;
   tabCollapsed: boolean;
   defaultTab: TabKey;
   m1Fallback: boolean;
@@ -148,7 +144,6 @@ interface ThemeState {
   setAccent: (a: AccentName) => void;
   setGap: (g: number) => void;
   setRadius: (r: number) => void;
-  setTabPosition: (p: TabPosition) => void;
   setTabCollapsed: (c: boolean) => void;
   setDefaultTab: (t: TabKey) => void;
   setM1Fallback: (v: boolean) => void;
@@ -164,7 +159,6 @@ export const useThemeStore = create<ThemeState>()(
       accent: 'violet',
       gap: 14,
       radius: 18,
-      tabPosition: 'top',
       tabCollapsed: false,
       defaultTab: 'overview',
       m1Fallback: true,
@@ -176,7 +170,6 @@ export const useThemeStore = create<ThemeState>()(
       setAccent: (accent) => set({ accent }),
       setGap: (gap) => set({ gap }),
       setRadius: (radius) => set({ radius }),
-      setTabPosition: (tabPosition) => set({ tabPosition }),
       setTabCollapsed: (tabCollapsed) => set({ tabCollapsed }),
       setDefaultTab: (defaultTab) => set({ defaultTab }),
       setM1Fallback: (m1Fallback) => set({ m1Fallback }),

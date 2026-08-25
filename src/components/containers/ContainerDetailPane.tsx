@@ -17,7 +17,7 @@ import { useAppStore } from '@/store/appStore';
 import { RUNTIMES } from '@/data/seed';
 import type { Container } from '@/types';
 
-export type DetailTab = 'logs' | 'shell' | 'stats' | 'env' | 'mounts';
+export type DetailTab = 'logs' | 'shell' | 'stats' | 'env' | 'mounts' | 'inspect';
 
 const TABS: { k: DetailTab; l: string }[] = [
   { k: 'logs', l: 'Logs' },
@@ -25,7 +25,11 @@ const TABS: { k: DetailTab; l: string }[] = [
   { k: 'stats', l: 'Stats' },
   { k: 'env', l: 'Env' },
   { k: 'mounts', l: 'Mounts' },
+  { k: 'inspect', l: 'Inspect' },
 ];
+
+const LEVELS = ['all', 'info', 'warn', 'err'] as const;
+const TAILS = [100, 500, 2000] as const;
 
 type LogLevel = 'ERR' | 'WARN' | 'INFO';
 
@@ -70,18 +74,25 @@ function seedLogs(c: Container): LogLine[] {
 function LogsTab({ container }: { container: Container }) {
   const live = useAppStore((s) => s.live);
   const [lines, setLines] = useState<LogLine[]>([]);
+  const [level, setLevel] = useState<(typeof LEVELS)[number]>('all');
+  const [tail, setTail] = useState<(typeof TAILS)[number]>(500);
+  const [timestamps, setTimestamps] = useState(false);
+  const [follow, setFollow] = useState(true);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Stream while the pane is open on this container; tear the stream down when
-  // it closes or the focus moves, as the handoff notes require.
+  // it closes or the focus moves, as the handoff notes require. Changing tail
+  // or timestamps restarts the stream, since both are arguments to the CLI.
   useEffect(() => {
     if (!live) return;
     let unlisten: UnlistenFn | undefined;
     let cancelled = false;
     setLines([]);
-    ContainerCommands.startLogs(container.rt, container.id).catch(() => undefined);
+    ContainerCommands.startLogs(container.rt, container.id, tail, timestamps).catch(
+      () => undefined,
+    );
     listen<string>(containerLogsEvent(container.id), (l) =>
-      setLines((prev) => [...prev.slice(-500), parseLogLine(l)]),
+      setLines((prev) => [...prev.slice(-tail), parseLogLine(l)]),
     ).then((u) => {
       if (cancelled) u();
       else unlisten = u;
@@ -91,37 +102,130 @@ function LogsTab({ container }: { container: Container }) {
       unlisten?.();
       ContainerCommands.stopLogs(container.id).catch(() => undefined);
     };
-  }, [live, container.rt, container.id]);
+  }, [live, container.rt, container.id, tail, timestamps]);
 
-  const rows = live ? lines : seedLogs(container);
+  const all = live ? lines : seedLogs(container);
+  const rows =
+    level === 'all' ? all : all.filter((l) => l.level.toLowerCase() === level);
 
-  // Follow mode: pin the newest line.
   useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [rows.length]);
+    if (follow && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [rows.length, follow]);
 
   return (
     <>
       <div className="det-logs" ref={bodyRef}>
-        {live && rows.length === 0 && (
+        {live && all.length === 0 && (
           <div className="det-log-row lv-info">
             <span className="det-log-msg">streaming logs…</span>
           </div>
         )}
+        {all.length > 0 && rows.length === 0 && (
+          <div className="det-log-row lv-info">
+            <span className="det-log-msg">no {level} lines in the last {tail}</span>
+          </div>
+        )}
         {rows.map((l, i) => (
           <div key={i} className={`det-log-row lv-${l.level.toLowerCase()}`}>
-            <span className="det-log-t">{l.time}</span>
+            {(timestamps || !live) && <span className="det-log-t">{l.time}</span>}
             <span className="det-log-lv">{l.level}</span>
             <span className="det-log-msg">{l.message}</span>
           </div>
         ))}
       </div>
       <div className="det-logs-foot mono">
-        <span>level: all ▾</span>
-        <span>tail 500 ▾</span>
-        <span className="det-following">● following</span>
+        <label className="log-ctl">
+          level
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value as (typeof LEVELS)[number])}
+          >
+            {LEVELS.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="log-ctl">
+          tail
+          <select
+            value={tail}
+            onChange={(e) => setTail(Number(e.target.value) as (typeof TAILS)[number])}
+          >
+            {TAILS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className={`log-toggle ${timestamps ? 'is-on' : ''}`}
+          title="Ask the runtime for RFC3339 timestamps"
+          onClick={() => setTimestamps((t) => !t)}
+        >
+          time
+        </button>
+        <button
+          type="button"
+          className={`det-following ${follow ? 'is-on' : ''}`}
+          onClick={() => setFollow((f) => !f)}
+        >
+          ● {follow ? 'following' : 'paused'}
+        </button>
       </div>
     </>
+  );
+}
+
+/** Raw `inspect` output — the JSON the CLI returns, pretty-printed. */
+function InspectTab({ container }: { container: Container }) {
+  const live = useAppStore((s) => s.live);
+  const [json, setJson] = useState<string>('');
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    if (!live) {
+      setJson(
+        JSON.stringify(
+          {
+            Id: container.id,
+            Name: `/${container.name}`,
+            State: { Status: container.status, Running: container.status === 'running' },
+            Config: { Image: container.image },
+            NetworkSettings: { Ports: { [container.port]: null } },
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    let cancelled = false;
+    ContainerCommands.inspect(container.rt, container.id)
+      .then((raw) => {
+        if (cancelled) return;
+        setJson(JSON.stringify(Array.isArray(raw) ? raw[0] : raw, null, 2));
+        setError('');
+      })
+      .catch((e) => !cancelled && setError(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [live, container]);
+
+  return (
+    <div className="det-inspect">
+      {error ? (
+        <div className="det-empty mono">{error}</div>
+      ) : (
+        <pre className="det-json mono">{json || 'loading…'}</pre>
+      )}
+    </div>
   );
 }
 
@@ -573,6 +677,7 @@ export function ContainerDetailPane({
         {tab === 'stats' && <StatsTab container={container} />}
         {tab === 'env' && <EnvTab container={container} />}
         {tab === 'mounts' && <MountsTab container={container} />}
+        {tab === 'inspect' && <InspectTab container={container} />}
       </aside>
     </>
   );

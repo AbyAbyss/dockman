@@ -26,8 +26,19 @@ function applyStatus(c: Container, next: ContainerStatus): Container {
   };
 }
 
+/** A transient failure notice. Command errors surface here rather than being
+ *  swallowed — several actions run concurrently, so a single `error` string
+ *  would lose all but the last one. */
+export interface Toast {
+  id: number;
+  text: string;
+}
+
+let toastSeq = 0;
+
 interface AppState {
   containers: Container[];
+  toasts: Toast[];
   runtimeFilter: RuntimeFilter;
   query: string;
   live: boolean;
@@ -48,6 +59,7 @@ interface AppState {
 
   setRuntimeFilter: (f: RuntimeFilter) => void;
   setQuery: (q: string) => void;
+  dismissToast: (id: number) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setFocusedContainer: (id: string | null) => void;
   setSelectedNetwork: (name: string) => void;
@@ -82,7 +94,17 @@ interface AppState {
   driftCpu: () => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set, get) => {
+  /** Record a failed command and raise it to the user. */
+  const fail = (e: unknown) => {
+    const text = String(e).replace(/^Error:\s*/, '');
+    set((s) => ({
+      error: text,
+      toasts: [...s.toasts, { id: (toastSeq += 1), text }].slice(-4),
+    }));
+  };
+
+  return {
   // Live mode starts empty and is filled by the first refresh; seed mode
   // shows the prototype inventory immediately.
   containers: isTauri() ? [] : INITIAL_CONTAINERS,
@@ -91,6 +113,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   live: isTauri(),
   loading: false,
   error: null,
+  toasts: [],
+
+  dismissToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   statusFilter: 'all',
   selection: [],
@@ -152,7 +178,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         /* stats are optional */
       }
     } catch (e) {
-      set({ error: String(e) });
+      fail(e);
     } finally {
       set({ loading: false });
     }
@@ -171,7 +197,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         } else if (next === 'paused') await ContainerCommands.pause(c.rt, id);
         else await ContainerCommands.stop(c.rt, id);
       } catch (e) {
-        set({ error: String(e) });
+        fail(e);
       }
       await refresh();
     } else {
@@ -189,7 +215,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         await ContainerCommands.restart(c.rt, id);
       } catch (e) {
-        set({ error: String(e) });
+        fail(e);
       }
       await refresh();
     } else {
@@ -210,7 +236,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (c.status === 'running') await ContainerCommands.pause(c.rt, id);
         else await ContainerCommands.unpause(c.rt, id);
       } catch (e) {
-        set({ error: String(e) });
+        fail(e);
       }
       await refresh();
     } else {
@@ -237,7 +263,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         await ContainerCommands.remove(c.rt, id);
       } catch (e) {
-        set({ error: String(e) });
+        fail(e);
       }
       await refresh();
     } else {
@@ -251,7 +277,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const stopped = containers.filter((c) => c.status === 'stopped');
       await Promise.all(
         stopped.map((c) =>
-          ContainerCommands.start(c.rt, c.id).catch((e) => set({ error: String(e) })),
+          ContainerCommands.start(c.rt, c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -270,7 +296,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const running = containers.filter((c) => c.status === 'running');
       await Promise.all(
         running.map((c) =>
-          ContainerCommands.restart(c.rt, c.id).catch((e) => set({ error: String(e) })),
+          ContainerCommands.restart(c.rt, c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -289,7 +315,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const running = containers.filter((c) => c.status === 'running');
       await Promise.all(
         running.map((c) =>
-          ContainerCommands.stop(c.rt, c.id).catch((e) => set({ error: String(e) })),
+          ContainerCommands.stop(c.rt, c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -319,7 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 : action === 'restart'
                   ? ContainerCommands.restart(c.rt, c.id)
                   : ContainerCommands.remove(c.rt, c.id);
-          return call.catch((e) => set({ error: String(e) }));
+          return call.catch((e) => fail(e));
         }),
       );
       set({ selection: [] });
@@ -356,7 +382,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (live) {
       await Promise.all(
         targets.map((c) =>
-          ContainerCommands.start(c.rt, c.id).catch((e) => set({ error: String(e) })),
+          ContainerCommands.start(c.rt, c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -379,7 +405,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (live) {
       await Promise.all(
         targets.map((c) =>
-          ContainerCommands.stop(c.rt, c.id).catch((e) => set({ error: String(e) })),
+          ContainerCommands.stop(c.rt, c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -401,7 +427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await Promise.all(
         targets.map((c) =>
           ContainerCommands.restart(c.rt, c.id).catch((e) =>
-            set({ error: String(e) }),
+            fail(e),
           ),
         ),
       );
@@ -423,4 +449,5 @@ export const useAppStore = create<AppState>((set, get) => ({
           : c,
       ),
     })),
-}));
+  };
+});

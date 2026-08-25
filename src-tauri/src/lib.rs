@@ -28,6 +28,7 @@ pub fn run() {
             runtime::set_runtime_mode,
             runtime::get_runtime_path,
             runtime::set_runtime_path,
+            runtime::pick_runtime_path,
             runtime::start_runtime_daemon,
             runtime::stop_runtime_daemon,
             runtime::set_start_on_login,
