@@ -73,10 +73,25 @@ Grab the latest installer for your platform from the [**Releases**](https://gith
 | 🪟 Windows | `.msi` / `.exe` |
 | 🐧 Linux | `.AppImage` / `.deb` |
 
-> [!IMPORTANT]
-> Builds are currently **unsigned**. On first launch:
-> - **macOS** — right-click the app → **Open**, then confirm.
-> - **Windows** — on the SmartScreen prompt, choose **More info → Run anyway**.
+## First launch
+
+Builds are not code-signed yet (free side project), so your OS will ask you to confirm the first time.
+
+**macOS** says it can't verify Dockman. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Dockman.app
+```
+
+**Windows** shows a SmartScreen prompt. Choose **More info → Run anyway**.
+
+**Linux** needs the AppImage to be executable, or install the `.deb`:
+
+```bash
+chmod +x Dockman_*.AppImage && ./Dockman_*.AppImage
+# or
+sudo apt install ./Dockman_*.deb
+```
 
 <a id="screenshots"></a>
 
@@ -121,9 +136,14 @@ npm install
 npm run tauri dev
 ```
 
-## 🏗️ Building from source
+## 🏗️ Build from source
+
+Install the prerequisites listed under Development (Node.js 20+, Rust stable, Tauri's platform dependencies), then:
 
 ```bash
+git clone https://github.com/AbyAbyss/dockman.git
+cd dockman
+npm install
 npm run tauri build
 ```
 
