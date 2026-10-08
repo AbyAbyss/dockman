@@ -19,7 +19,7 @@ import { isTauri, listen, type UnlistenFn } from '@/lib/tauri';
 import { BINARY_MANIFEST, DOWNLOAD_HISTORY, RUNTIMES } from '@/data/seed';
 import type { RuntimeMeta, RuntimeName } from '@/types';
 
-type Phase = 'downloading' | 'extracting' | 'installing' | 'done' | 'error';
+type Phase = 'downloading' | 'extracting' | 'installing' | 'verifying' | 'done' | 'error';
 
 interface DownloadTask {
   rt: RuntimeName;
@@ -33,7 +33,8 @@ const PHASE_LABEL: Record<Phase, string> = {
   downloading: 'Downloading',
   extracting: 'Extracting',
   installing: 'Installing',
-  done: 'Installed',
+  verifying: 'Verifying',
+  done: 'Installed · verified',
   error: 'Failed',
 };
 
@@ -382,8 +383,19 @@ export default function Binaries() {
     if (task || !version) return;
     const release = releases[rt].find((r) => r.version === version);
 
-    if (!live || !release || !release.url) {
+    if (!live) {
       simulate(rt, version);
+      return;
+    }
+    if (!release || !release.url) {
+      setTask({
+        rt,
+        version,
+        phase: 'error',
+        percent: 0,
+        message: 'no download available for this version — the release list may have failed to load',
+      });
+      window.setTimeout(() => setTask(null), 5000);
       return;
     }
 
@@ -538,7 +550,7 @@ export default function Binaries() {
             <div>
               <div className="bin-opt-label">Verify after download</div>
               <div className="bin-opt-sub mono">
-                re-detects the runtime to confirm the install worked
+                runs the installed binary and checks it reports the chosen version
               </div>
             </div>
           </label>

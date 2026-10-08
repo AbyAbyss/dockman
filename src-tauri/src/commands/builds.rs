@@ -133,7 +133,7 @@ pub async fn clear_build_history() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn read_dockerfile(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    std::fs::read_to_string(super::expand_home(&path)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -167,6 +167,8 @@ pub async fn start_build(
     push_on_success: bool,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
+    let context_path = super::expand_home(&context_path);
+    let dockerfile = dockerfile.map(|p| super::expand_home(&p));
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())

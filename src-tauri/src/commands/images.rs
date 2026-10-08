@@ -21,12 +21,22 @@ pub async fn remove_image(runtime: String, id: String, force: bool) -> Result<()
 /// Pull an image, blocking until complete (the frontend renders its own
 /// progress indicator).
 #[tauri::command]
-pub async fn pull_image(runtime: String, image: String) -> Result<(), String> {
+pub async fn pull_image(
+    runtime: String,
+    image: String,
+    platform: Option<String>,
+) -> Result<(), String> {
     let bin = super::resolve(&runtime)?;
     if runtime == "docker" {
         let _ = super::ensure_docker_helpers();
     }
-    super::run(&bin, &["pull", &image]).map(|_| ())
+    let mut args = vec!["pull"];
+    if let Some(p) = platform.as_deref().filter(|p| !p.is_empty()) {
+        args.push("--platform");
+        args.push(p);
+    }
+    args.push(&image);
+    super::run(&bin, &args).map(|_| ())
 }
 
 #[tauri::command]

@@ -11,8 +11,9 @@ import { RuntimeBadge } from '@/components/ui/Runtime';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
-import { useImages } from '@/hooks/useData';
+import { useImages, useRuntimes } from '@/hooks/useData';
 import { ContainerCommands, ImageCommands } from '@/lib/commands';
+import { fallbackPlatform, isArchMismatch } from '@/lib/archFallback';
 import { RUNTIMES } from '@/data/seed';
 import type { RuntimeName } from '@/types';
 
@@ -37,11 +38,19 @@ export default function Images() {
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const refreshContainers = useAppStore((s) => s.refresh);
   const accent = ACCENTS[useThemeStore((s) => s.accent)].hex;
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
+  const { runtimes } = useRuntimes();
   const imagesRes = useImages(runtimeFilter);
   const images = imagesRes.data;
 
   const [pullInput, setPullInput] = useState('postgres:16-alpine');
   const [pulling, setPulling] = useState<{ name: string; progress: number } | null>(null);
+  /** Outcome of the last pull; `dockerPlatform` offers the Docker fallback. */
+  const [pullMsg, setPullMsg] = useState<{
+    tone: 'error' | 'info';
+    text: string;
+    dockerPlatform?: string;
+  } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tagging, setTagging] = useState(false);
   const [tagValue, setTagValue] = useState('');
@@ -63,24 +72,65 @@ export default function Images() {
   );
   const totalSize = images.reduce((s, i) => s + sizeToMB(i.size), 0);
 
+  const stopPullTimer = () => {
+    if (pullTimer.current) clearInterval(pullTimer.current);
+    pullTimer.current = null;
+  };
+
+  const runPull = (name: string, rt: RuntimeName, platform?: string) => {
+    setPulling({ name, progress: 0 });
+    // `pull` reports no progress, so the bar is cosmetic and holds short of
+    // 100% until the CLI call actually returns.
+    stopPullTimer();
+    let p = 0;
+    pullTimer.current = window.setInterval(() => {
+      p = Math.min(92, p + 4 + Math.random() * 8);
+      setPulling({ name, progress: Math.round(p) });
+    }, 280);
+
+    ImageCommands.pull(rt, name, platform)
+      .then(() => {
+        stopPullTimer();
+        setPulling(null);
+        if (platform) setPullMsg({ tone: 'info', text: `Pulled ${name} on docker as ${platform}` });
+        imagesRes.refetch();
+      })
+      .catch((e) => {
+        const msg = String(e);
+        if (rt === 'podman' && runtimes.docker.found && isArchMismatch(msg)) {
+          const plat = fallbackPlatform(runtimes.docker.arch);
+          if (autoFallback) {
+            setPullMsg({ tone: 'info', text: `Arch mismatch on podman, pulling on docker (${plat})` });
+            runPull(name, 'docker', plat);
+            return;
+          }
+          stopPullTimer();
+          setPulling(null);
+          setPullMsg({ tone: 'error', text: msg, dockerPlatform: plat });
+          return;
+        }
+        stopPullTimer();
+        setPulling(null);
+        setPullMsg({ tone: 'error', text: msg });
+      });
+  };
+
   const startPull = () => {
     if (!pullInput.trim() || pulling) return;
-    const name = pullInput;
-    setPulling({ name, progress: 0 });
+    const name = pullInput.trim();
+    setPullMsg(null);
 
     if (imagesRes.live) {
-      const rt = runtimeFilter === 'podman' ? 'podman' : 'docker';
-      ImageCommands.pull(rt, name)
-        .then(() => imagesRes.refetch())
-        .catch(() => undefined);
+      runPull(name, runtimeFilter === 'podman' ? 'podman' : 'docker');
+      return;
     }
 
     let p = 0;
+    setPulling({ name, progress: 0 });
     pullTimer.current = window.setInterval(() => {
       p += 8 + Math.random() * 12;
       if (p >= 100) {
-        if (pullTimer.current) clearInterval(pullTimer.current);
-        pullTimer.current = null;
+        stopPullTimer();
         setPulling(null);
         return;
       }
@@ -202,6 +252,26 @@ export default function Images() {
               <div className="pull-fill" style={{ width: `${pulling.progress}%` }} />
             </div>
             <div className="pull-meta mono">{pulling.name} · downloading layers</div>
+          </div>
+        )}
+        {pullMsg && !pulling && (
+          <div className={`${pullMsg.tone === 'error' ? 'rcm-error' : 'rcm-note'} mono`}>
+            {pullMsg.text}
+            {pullMsg.dockerPlatform && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="action-btn"
+                  type="button"
+                  onClick={() => {
+                    const plat = pullMsg.dockerPlatform;
+                    setPullMsg(null);
+                    runPull(pullInput.trim(), 'docker', plat);
+                  }}
+                >
+                  Pull on Docker as {pullMsg.dockerPlatform}
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className="pull-suggest">

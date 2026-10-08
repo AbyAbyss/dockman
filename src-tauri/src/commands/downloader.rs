@@ -181,11 +181,62 @@ pub async fn get_default_install_dir() -> Result<String, String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
-/// Verify an installed binary by running `{path} version`.
+/// Verify an installed binary by running `{path} --version`, which works
+/// without a running engine (plain `version` errors when the daemon is down).
 #[tauri::command]
 pub async fn verify_binary(path: String) -> Result<String, String> {
-    super::run(&path, &["version"])
+    super::run(&path, &["--version"])
         .map(|s| s.lines().next().unwrap_or("").trim().to_string())
+}
+
+/// Run the installed binary and check it reports the requested version.
+fn verify_installed(path: &str, version: &str) -> Result<String, String> {
+    let out = super::run(path, &["--version"])?;
+    let line = out.lines().next().unwrap_or("").trim().to_string();
+    if line.contains(version) {
+        Ok(line)
+    } else {
+        Err(format!("expected version {version}, binary reports \"{line}\""))
+    }
+}
+
+/// Locate the runtime's CLI inside an extracted release archive. Podman's
+/// Linux asset ships `podman-remote-static-linux_<arch>`, macOS / Windows
+/// ship `podman` / `podman.exe`, Docker ships `docker/docker(.exe)`.
+fn find_binary(dir: &std::path::Path, runtime: &str) -> Option<PathBuf> {
+    let mut files = Vec::new();
+    collect_files(dir, &mut files);
+    let name_of = |p: &PathBuf| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+    let exact = [runtime.to_string(), format!("{runtime}.exe")];
+    if let Some(p) = files.iter().find(|p| exact.contains(&name_of(p))) {
+        return Some(p.clone());
+    }
+    if runtime == "podman" {
+        return files
+            .iter()
+            .find(|p| {
+                let n = name_of(p);
+                n.starts_with("podman-remote") && !n.ends_with(".1") && !n.ends_with(".md")
+            })
+            .cloned();
+    }
+    None
+}
+
+fn collect_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_files(&p, out);
+        } else {
+            out.push(p);
+        }
+    }
 }
 
 /// Append the install directory to the shell rc files' PATH.
@@ -255,7 +306,9 @@ pub async fn download_binary(
             return;
         }
         let ed = extract_dir.to_string_lossy().into_owned();
-        let extracted = if ext == "zip" {
+        let extracted = if ext == "zip" && cfg!(windows) {
+            super::run("tar", &["-xf", &tmp_s, "-C", &ed]).is_ok()
+        } else if ext == "zip" {
             super::run("unzip", &["-o", "-q", &tmp_s, "-d", &ed]).is_ok()
         } else {
             super::run("tar", &["-xzf", &tmp_s, "-C", &ed]).is_ok()
@@ -265,22 +318,8 @@ pub async fn download_binary(
             return;
         }
 
-        progress("installing", 80, "");
-        let mut bin = super::run("find", &[&ed, "-type", "f", "-name", &runtime])
-            .unwrap_or_default()
-            .lines()
-            .next()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        if bin.is_none() && runtime == "podman" {
-            bin = super::run("find", &[&ed, "-type", "f", "-name", "podman-remote"])
-                .unwrap_or_default()
-                .lines()
-                .next()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-        }
-        let bin = match bin {
+        progress("installing", 75, "");
+        let bin = match find_binary(&extract_dir, &runtime) {
             Some(b) => b,
             None => {
                 progress("error", 0, "binary not found inside the archive");
@@ -289,7 +328,8 @@ pub async fn download_binary(
         };
 
         let _ = std::fs::create_dir_all(&install_dir);
-        let dest = PathBuf::from(&install_dir).join(&runtime);
+        let dest = PathBuf::from(&install_dir)
+            .join(format!("{runtime}{}", std::env::consts::EXE_SUFFIX));
         if let Err(e) = std::fs::copy(&bin, &dest) {
             progress("error", 0, &format!("install failed: {e}"));
             return;
@@ -297,7 +337,27 @@ pub async fn download_binary(
         let dest_s = dest.to_string_lossy().into_owned();
         #[cfg(unix)]
         {
-            let _ = super::run("chmod", &["+x", &dest_s]);
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) =
+                std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
+            {
+                progress("error", 0, &format!("could not make {dest_s} executable: {e}"));
+                return;
+            }
+        }
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_dir_all(&extract_dir);
+
+        // Run the installed file to prove it executes on this machine and is
+        // the version that was asked for. `--version` needs no engine.
+        progress("verifying", 90, "");
+        if let Err(e) = verify_installed(&dest_s, &version) {
+            progress(
+                "error",
+                0,
+                &format!("installed to {dest_s} but it failed verification: {e}"),
+            );
+            return;
         }
 
         progress("done", 100, &dest_s);

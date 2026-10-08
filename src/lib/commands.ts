@@ -62,6 +62,8 @@ export interface RunContainerConfig {
   memorySwap?: string;
   cpus?: string;
   storageSize?: string;
+  /** Explicit platform (e.g. `linux/amd64`) — used by the Docker fallback. */
+  platform?: string;
 }
 
 export interface NewBuildConfig {
@@ -209,8 +211,8 @@ export const ImageCommands = {
   },
   remove: (rt: RuntimeName, id: string, force = true) =>
     invoke<void>('remove_image', { runtime: rt, id, force }),
-  pull: (rt: RuntimeName, image: string) =>
-    invoke<void>('pull_image', { runtime: rt, image }),
+  pull: (rt: RuntimeName, image: string, platform?: string) =>
+    invoke<void>('pull_image', { runtime: rt, image, platform }),
   push: (rt: RuntimeName, tag: string) =>
     invoke<void>('push_image', { runtime: rt, tag }),
   prune: (rt: RuntimeName) => invoke<string>('prune_images', { runtime: rt }),

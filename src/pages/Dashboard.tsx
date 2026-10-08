@@ -521,6 +521,7 @@ function NetworksCard({ networks }: { networks: Network[] }) {
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 function HealthCard({ runtimes }: { runtimes: Record<RuntimeName, RuntimeMeta> }) {
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
   const found = (['docker', 'podman'] as RuntimeName[]).filter((r) => runtimes[r].found);
   return (
     <BentoCard span={6} className="bc-health">
@@ -543,7 +544,8 @@ function HealthCard({ runtimes }: { runtimes: Record<RuntimeName, RuntimeMeta> }
         {found.length === 2 ? 'Both runtimes healthy' : `${found.length} runtime active`}
       </div>
       <div className="health-sub mono">
-        docker {runtimes.docker.version} · podman {runtimes.podman.version} · auto-fallback on
+        docker {runtimes.docker.version} · podman {runtimes.podman.version} · auto-fallback{' '}
+        {autoFallback ? 'on' : 'off'}
       </div>
       <button className="health-cta" type="button">
         View report <Glyph name="arrow" size={12} />

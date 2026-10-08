@@ -146,6 +146,11 @@ pub fn ensure_docker_helpers() -> Result<(), String> {
 
 /// Resolve a runtime name ("docker" / "podman") to an absolute binary path.
 pub fn resolve(runtime: &str) -> Result<String, String> {
+    // A path recorded by the installer (or set in Settings) wins over PATH, so
+    // every command uses the same binary that detection reports.
+    if let Some(p) = runtime::custom_path(runtime) {
+        return Ok(p);
+    }
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Ok(p) = which::which_in(runtime, Some(shell_path()), &cwd) {
         return Ok(p.to_string_lossy().into_owned());
@@ -267,6 +272,18 @@ pub fn spawn_streaming(
 enum Pipe {
     Out(std::process::ChildStdout),
     Err(std::process::ChildStderr),
+}
+
+/// Expand a leading `~` to the home directory. CLI args are passed without a
+/// shell, so `~/proj` would otherwise reach the runtime literally.
+pub fn expand_home(path: &str) -> String {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"));
+    match (path.strip_prefix('~'), home) {
+        (Some(rest), Ok(h)) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
+            format!("{h}{rest}")
+        }
+        _ => path.to_string(),
+    }
 }
 
 /// The Dockman config directory (`~/.config/dockman`), created on demand.

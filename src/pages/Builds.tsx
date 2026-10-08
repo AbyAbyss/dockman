@@ -12,8 +12,9 @@ import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
 import { useAppStore } from '@/store/appStore';
-import { useBuilds } from '@/hooks/useData';
+import { useBuilds, useRuntimes } from '@/hooks/useData';
 import { BuildCommands, buildOutputEvent, BUILDS_CHANGED } from '@/lib/commands';
+import { fallbackPlatform, isArchMismatch } from '@/lib/archFallback';
 import { listen, type UnlistenFn } from '@/lib/tauri';
 import { LAYER_CACHE } from '@/data/seed';
 import type { BuildLayer, BuildRecord, RuntimeName } from '@/types';
@@ -103,6 +104,8 @@ export default function Builds() {
   const accent = ACCENTS[useThemeStore((s) => s.accent)].hex;
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const buildsRes = useBuilds(runtimeFilter);
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
+  const { runtimes } = useRuntimes();
 
   const [localBuilds, setLocalBuilds] = useState<BuildRecord[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -110,6 +113,8 @@ export default function Builds() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [task, setTask] = useState<BuildTask | null>(null);
+  /** Note under the build form; `platform` offers a Docker rebuild. */
+  const [buildHint, setBuildHint] = useState<{ text: string; platform?: string } | null>(null);
   const [form, setForm] = useState({
     tag: 'dockman/api-gw:0.14.3',
     context: '~/work/api-platform',
@@ -162,39 +167,70 @@ export default function Builds() {
     setEditing(false);
   };
 
+  const runLiveBuild = async (runtime: RuntimeName, platform?: string) => {
+    setTask({ progress: 8, lines: [`queued build — invoking ${runtime} build…`] });
+    const output: string[] = [];
+    try {
+      const id = await BuildCommands.start({
+        runtime,
+        tag: form.tag,
+        contextPath: form.context,
+        buildArgs: [],
+        platform,
+        useCache: form.useCache,
+        pushOnSuccess: form.pushOnSuccess,
+      });
+      const offOutput = await listen<string>(buildOutputEvent(id), (line) => {
+        output.push(line);
+        setTask((t) =>
+          t ? { progress: Math.min(95, t.progress + 3), lines: [...t.lines, line] } : t,
+        );
+      });
+      const offDone = await listen<unknown>(BUILDS_CHANGED, async () => {
+        offOutput();
+        offDone();
+        unlisteners.current = unlisteners.current.filter(
+          (u) => u !== offOutput && u !== offDone,
+        );
+        setSelectedId(id);
+        buildsRes.refetch();
+
+        // A Podman build that failed on the CPU architecture (a base image
+        // with no variant for this host, or a RUN step hitting "exec format
+        // error") can be rebuilt on Docker for the foreign platform.
+        const rec = (await BuildCommands.list().catch(() => [])).find((b) => b.id === id);
+        if (
+          rec?.status === 'failed' &&
+          runtime === 'podman' &&
+          runtimes.docker.found &&
+          isArchMismatch(output.join('\n'))
+        ) {
+          const plat = fallbackPlatform(runtimes.docker.arch);
+          if (autoFallback) {
+            setBuildHint({ text: `Arch mismatch on podman, rebuilding on docker (${plat})` });
+            runLiveBuild('docker', plat);
+            return;
+          }
+          setBuildHint({
+            text: "Podman couldn't build this image for its CPU architecture.",
+            platform: plat,
+          });
+        }
+        setTask(null);
+      });
+      unlisteners.current.push(offOutput, offDone);
+    } catch (e) {
+      setTask(null);
+      setBuildHint({ text: String(e) });
+    }
+  };
+
   const startBuild = async () => {
     if (task) return;
 
     if (buildsRes.live) {
-      setTask({ progress: 8, lines: ['queued build — invoking docker build…'] });
-      try {
-        const id = await BuildCommands.start({
-          runtime: runtimeFilter === 'podman' ? 'podman' : 'docker',
-          tag: form.tag,
-          contextPath: form.context,
-          buildArgs: [],
-          useCache: form.useCache,
-          pushOnSuccess: form.pushOnSuccess,
-        });
-        const offOutput = await listen<string>(buildOutputEvent(id), (line) => {
-          setTask((t) =>
-            t ? { progress: Math.min(95, t.progress + 3), lines: [...t.lines, line] } : t,
-          );
-        });
-        const offDone = await listen<unknown>(BUILDS_CHANGED, () => {
-          offOutput();
-          offDone();
-          unlisteners.current = unlisteners.current.filter(
-            (u) => u !== offOutput && u !== offDone,
-          );
-          setTask(null);
-          setSelectedId(id);
-          buildsRes.refetch();
-        });
-        unlisteners.current.push(offOutput, offDone);
-      } catch {
-        setTask(null);
-      }
+      setBuildHint(null);
+      await runLiveBuild(runtimeFilter === 'podman' ? 'podman' : 'docker');
       return;
     }
 
@@ -279,6 +315,27 @@ export default function Builds() {
               )}
             </button>
           </div>
+
+          {buildHint && !task && (
+            <div className="rcm-note mono">
+              {buildHint.text}
+              {buildHint.platform && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    className="action-btn"
+                    type="button"
+                    onClick={() => {
+                      const plat = buildHint.platform;
+                      setBuildHint(null);
+                      runLiveBuild('docker', plat);
+                    }}
+                  >
+                    Rebuild on Docker as {buildHint.platform}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {task ? (
             <div className="build-progress">
@@ -415,8 +472,8 @@ export default function Builds() {
                   <span>Build failed</span>
                 </div>
                 <div className="build-fail-msg mono">
-                  process "/bin/sh -c npm run build" exited with code 1 — check the
-                  RUN step output
+                  the {selected.rt} build exited with an error — check the build output
+                  for the failing step
                 </div>
               </div>
             )}

@@ -43,7 +43,9 @@ fn write_config(c: &Config) -> Result<(), String> {
     std::fs::write(config_path(), json).map_err(|e| e.to_string())
 }
 
-fn custom_path(runtime: &str) -> Option<String> {
+/// The binary path recorded for a runtime (set by the installer or the user),
+/// if it still exists.
+pub(crate) fn custom_path(runtime: &str) -> Option<String> {
     let cfg = read_config();
     let p = match runtime {
         "docker" => cfg.docker_path,

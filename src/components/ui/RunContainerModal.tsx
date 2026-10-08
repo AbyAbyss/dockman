@@ -8,9 +8,12 @@ import { useEffect, useState } from 'react';
 import { Glyph } from './Icon';
 import { LaunchCard } from './LaunchCard';
 import { RuntimeBadge } from './Runtime';
-import { ContainerCommands } from '@/lib/commands';
+import { ContainerCommands, type RunContainerConfig } from '@/lib/commands';
+import { fallbackPlatform, isArchMismatch } from '@/lib/archFallback';
 import { LIMIT_PRESETS, limitSummary } from '@/lib/limits';
+import { useRuntimes } from '@/hooks/useData';
 import { useAppStore } from '@/store/appStore';
+import { useThemeStore } from '@/store/themeStore';
 import type { RuntimeName } from '@/types';
 
 interface Pair {
@@ -55,6 +58,8 @@ export function RunContainerModal({
 }) {
   const refresh = useAppStore((s) => s.refresh);
   const live = useAppStore((s) => s.live);
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
+  const { runtimes } = useRuntimes();
 
   const [image, setImage] = useState(defaultImage);
   const [name, setName] = useState('');
@@ -71,6 +76,9 @@ export function RunContainerModal({
   const [detach, setDetach] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Set when Podman hit an arch mismatch and Docker could run the image. */
+  const [suggestDocker, setSuggestDocker] = useState<string | null>(null);
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
 
   // Escape closes the modal — unless a launch is in flight.
   useEffect(() => {
@@ -97,27 +105,45 @@ export function RunContainerModal({
     (p) => p.memory === memory && p.memorySwap === memorySwap && p.cpus === cpus,
   )?.label;
 
-  const launch = () => {
-    if (!image.trim() || busy) return;
+  const config = (platform?: string): RunContainerConfig => ({
+    image: image.trim(),
+    name: name.trim() || undefined,
+    ports: ports.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
+    env: env.filter((p) => p.a).map((p) => `${p.a}=${p.b}`),
+    volumes: volumes.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
+    command: command.trim() ? command.trim().split(/\s+/) : [],
+    detach,
+    memory: memory.trim() || undefined,
+    memorySwap: memorySwap.trim() || undefined,
+    cpus: cpus.trim() || undefined,
+    storageSize: storageSize.trim() || undefined,
+    platform,
+  });
+
+  const launch = (target: RuntimeName = rt, platform?: string) => {
+    if (!image.trim()) return;
     setError(null);
+    setSuggestDocker(null);
     setBusy(true);
-    ContainerCommands.run(rt, {
-      image: image.trim(),
-      name: name.trim() || undefined,
-      ports: ports.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
-      env: env.filter((p) => p.a).map((p) => `${p.a}=${p.b}`),
-      volumes: volumes.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
-      command: command.trim() ? command.trim().split(/\s+/) : [],
-      detach,
-      memory: memory.trim() || undefined,
-      memorySwap: memorySwap.trim() || undefined,
-      cpus: cpus.trim() || undefined,
-      storageSize: storageSize.trim() || undefined,
-    })
+    ContainerCommands.run(target, config(platform))
       .then(() => refresh())
       .then(() => onClose())
       .catch((e) => {
-        setError(String(e));
+        const msg = String(e);
+        // Podman can't run images built for another CPU architecture (an
+        // amd64-only image on Apple Silicon); Docker can, under emulation.
+        if (target === 'podman' && runtimes.docker.found && isArchMismatch(msg)) {
+          const plat = fallbackPlatform(runtimes.docker.arch);
+          if (autoFallback) {
+            setRt('docker');
+            setFallbackNote(`arch mismatch on podman, retrying on docker (${plat})`);
+            launch('docker', plat);
+            return;
+          }
+          setSuggestDocker(plat);
+        }
+        setFallbackNote(null);
+        setError(msg);
         setBusy(false);
       });
   };
@@ -150,7 +176,9 @@ export function RunContainerModal({
           <LaunchCard
             rt={rt}
             image={image.trim()}
-            note={memory || cpus ? limitSummary(memory, cpus) : undefined}
+            note={
+              fallbackNote ?? (memory || cpus ? limitSummary(memory, cpus) : undefined)
+            }
           />
         ) : (
           <>
@@ -346,6 +374,22 @@ export function RunContainerModal({
                 </div>
               )}
               {error && <div className="rcm-error mono">{error}</div>}
+              {suggestDocker && (
+                <div className="rcm-note">
+                  This image doesn't match Podman's CPU architecture. Docker can run it
+                  under emulation as {suggestDocker}.{' '}
+                  <button
+                    className="action-btn"
+                    type="button"
+                    onClick={() => {
+                      setRt('docker');
+                      launch('docker', suggestDocker);
+                    }}
+                  >
+                    Run on Docker instead
+                  </button>
+                </div>
+              )}
             </div>
 
             <footer className="modal-foot">
@@ -355,7 +399,7 @@ export function RunContainerModal({
               <button
                 className="action-btn primary"
                 type="button"
-                onClick={launch}
+                onClick={() => launch()}
                 disabled={!image.trim()}
               >
                 <Glyph name="play" size={12} /> Run container
