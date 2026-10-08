@@ -1,37 +1,40 @@
-// Generic data hook: live fetch under Tauri, static seed in the browser.
-// Keeps every page agnostic about which mode it is running in.
+// Generic data hook: fetch once, re-fetch when deps change, optional polling.
+// Every page gets the same { data, loading, error, refetch } shape.
 
 import { useCallback, useEffect, useState } from 'react';
-import { isTauri } from '@/lib/tauri';
+
+export const REFRESH_EVENT = 'dockman:refresh';
+
+/** Ask every mounted resource hook to fetch again. */
+export function refreshAll(): void {
+  window.dispatchEvent(new Event(REFRESH_EVENT));
+}
 
 export interface Resource<T> {
   data: T;
   loading: boolean;
   error: string | null;
-  live: boolean;
   refetch: () => void;
 }
 
 /**
- * @param fetcher  live data source (only called under Tauri)
- * @param seed     fallback value used in the browser
+ * @param fetcher  data source
+ * @param initial  value shown until the first fetch resolves
  * @param deps     re-fetch when these change
- * @param pollMs   optional polling interval (live mode only)
+ * @param pollMs   optional polling interval
  */
 export function useResource<T>(
   fetcher: () => Promise<T>,
-  seed: T,
+  initial: T,
   deps: unknown[] = [],
   pollMs = 0,
 ): Resource<T> {
-  const live = isTauri();
-  const [data, setData] = useState<T>(seed);
-  const [loading, setLoading] = useState<boolean>(live);
+  const [data, setData] = useState<T>(initial);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const load = useCallback(() => {
-    if (!live) return;
     fetcher()
       .then((d) => {
         setData(d);
@@ -42,14 +45,16 @@ export function useResource<T>(
   }, deps);
 
   useEffect(() => {
-    if (!live) return;
     setLoading(true);
     load();
-    if (pollMs > 0) {
-      const id = setInterval(load, pollMs);
-      return () => clearInterval(id);
-    }
-  }, [load, live, pollMs]);
+    // The top bar's refresh button re-fetches every mounted resource.
+    window.addEventListener(REFRESH_EVENT, load);
+    const id = pollMs > 0 ? setInterval(load, pollMs) : 0;
+    return () => {
+      window.removeEventListener(REFRESH_EVENT, load);
+      if (id) clearInterval(id);
+    };
+  }, [load, pollMs]);
 
-  return { data: live ? data : seed, loading, error, live, refetch: load };
+  return { data, loading, error, refetch: load };
 }

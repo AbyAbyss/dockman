@@ -193,3 +193,17 @@ pub async fn pick_compose_file(app: tauri::AppHandle) -> Result<Option<String>, 
         .blocking_pick_file();
     Ok(picked.map(|f| f.to_string()))
 }
+
+/// Native folder picker (build contexts). `None` when cancelled.
+#[tauri::command]
+pub async fn pick_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = app.dialog().file().blocking_pick_folder();
+    Ok(picked.map(|f| f.to_string()))
+}
+
+/// Native file picker with no filter (runtime binaries). `None` when cancelled.
+#[tauri::command]
+pub async fn pick_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = app.dialog().file().blocking_pick_file();
+    Ok(picked.map(|f| f.to_string()))
+}

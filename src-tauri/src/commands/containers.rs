@@ -123,6 +123,7 @@ pub async fn run_container(
     memory_swap: Option<String>,
     cpus: Option<String>,
     storage_size: Option<String>,
+    platform: Option<String>,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
     if runtime == "docker" {
@@ -169,6 +170,12 @@ pub async fn run_container(
         args.push("--storage-opt".into());
         args.push(format!("size={sz}"));
     }
+    // Explicit platform, e.g. linux/amd64 when falling back to Docker for an
+    // image built for a different CPU architecture.
+    if let Some(p) = platform.filter(|s| !s.is_empty()) {
+        args.push("--platform".into());
+        args.push(p);
+    }
     args.push(image);
     // An optional command / args override, appended after the image — also
     // covers one-off "run a command on an image" use.
@@ -176,7 +183,46 @@ pub async fn run_container(
         args.push(c);
     }
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    super::run(&bin, &arg_refs).map(|s| s.trim().to_string())
+    let id = super::run(&bin, &arg_refs).map(|s| s.trim().to_string())?;
+    if detach {
+        check_arch_crash(&bin, &id)?;
+    }
+    Ok(id)
+}
+
+/// A detached `run` of an image built for another CPU architecture succeeds
+/// and returns an id, then the container dies at once with "exec format
+/// error". Give it a moment, and if that is what happened, remove the dead
+/// container and report the mismatch so the UI can offer the Docker fallback.
+fn check_arch_crash(bin: &str, id: &str) -> Result<(), String> {
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let state = super::run(bin, &["inspect", "--format", "{{.State.Status}}", id])
+        .unwrap_or_default();
+    if !state.trim().eq_ignore_ascii_case("exited") {
+        return Ok(());
+    }
+    // Container output goes to stdout or stderr depending on the runtime.
+    let logs = std::process::Command::new(bin)
+        .args(["logs", "--tail", "20", id])
+        .env("PATH", super::shell_path())
+        .output()
+        .map(|o| {
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&o.stdout),
+                String::from_utf8_lossy(&o.stderr)
+            )
+        })
+        .unwrap_or_default();
+    if !logs.to_lowercase().contains("exec format error") {
+        return Ok(());
+    }
+    let _ = super::run(bin, &["rm", "-f", id]);
+    Err(format!(
+        "container exited immediately: exec format error (the image was built \
+         for a different CPU architecture)\n{}",
+        logs.trim()
+    ))
 }
 
 /// Update a container's memory / CPU limits via `{runtime} update`. These can

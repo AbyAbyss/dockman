@@ -5,8 +5,6 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Glyph, type IconName } from '@/components/ui/Icon';
 import { Pill } from '@/components/ui/Badge';
 import { RuntimeCommands, type RuntimeInfo } from '@/lib/commands';
-import { isTauri } from '@/lib/tauri';
-import { RUNTIMES } from '@/data/seed';
 import { useWizardStore } from '@/store/wizardStore';
 import { useAppStore } from '@/store/appStore';
 import type { RuntimeFilter, RuntimeName } from '@/types';
@@ -17,36 +15,23 @@ const MODE_OPTIONS: { key: RuntimeFilter; name: string; sub: string; icon: IconN
   { key: 'all', name: 'Both', sub: 'Unified Docker + Podman view', icon: 'bolt' },
 ];
 
-/** Browser-mode fallback when live detection isn't available. */
-function seedRuntimeInfo(): RuntimeInfo[] {
-  return (['docker', 'podman'] as RuntimeName[]).map((rt) => ({
-    runtime: rt,
-    found: RUNTIMES[rt].found,
-    path: RUNTIMES[rt].path,
-    version: RUNTIMES[rt].version,
-    isRunning: RUNTIMES[rt].running,
-    arch: RUNTIMES[rt].arch,
-    composeAvailable: true,
-  }));
-}
-
 export function SetupWizard() {
   const setCompleted = useWizardStore((s) => s.setCompleted);
   const setRuntimeFilter = useAppStore((s) => s.setRuntimeFilter);
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<RuntimeFilter>('all');
   const [detected, setDetected] = useState<RuntimeInfo[] | null>(null);
+  const [detectError, setDetectError] = useState<string | null>(null);
 
   // Detect runtimes when the user reaches step 2.
   useEffect(() => {
     if (step !== 1 || detected) return;
-    if (!isTauri()) {
-      setDetected(seedRuntimeInfo());
-      return;
-    }
     RuntimeCommands.detectAll()
       .then(setDetected)
-      .catch(() => setDetected(seedRuntimeInfo()));
+      .catch((e) => {
+        setDetectError(String(e));
+        setDetected([]);
+      });
   }, [step, detected]);
 
   const finish = () => {
@@ -140,6 +125,7 @@ export function SetupWizard() {
             <>
               <div className="wizard-h2">Detecting container runtimes</div>
               {!detected && <div className="wizard-sub">Scanning your system…</div>}
+              {detectError && <div className="rcm-error mono">{detectError}</div>}
               {detected?.map((r) => (
                 <div key={r.runtime} className="wizard-detect-row">
                   <div className={`rt-card-mark rt-${r.runtime}`}>

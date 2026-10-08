@@ -21,7 +21,7 @@ pub struct BinaryRelease {
 }
 
 /// download.docker.com path component for the current OS.
-fn docker_os() -> &'static str {
+pub(crate) fn docker_os() -> &'static str {
     match std::env::consts::OS {
         "macos" => "mac",
         "windows" => "win",
@@ -30,7 +30,7 @@ fn docker_os() -> &'static str {
 }
 
 /// Compare two dotted numeric version strings (e.g. "26.1.4").
-fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
     let pa: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
     let pb: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
     pa.cmp(&pb)
@@ -173,38 +173,106 @@ pub async fn get_available_releases(
 /// Default install directory for downloaded binaries (`~/.local/bin`).
 #[tauri::command]
 pub async fn get_default_install_dir() -> Result<String, String> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "no home directory".to_string())?;
-    let dir = PathBuf::from(home).join(".local").join("bin");
+    let dir = super::home_dir().join(".local").join("bin");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().into_owned())
 }
 
-/// Verify an installed binary by running `{path} version`.
+/// Verify an installed binary by running `{path} --version`, which works
+/// without a running engine (plain `version` errors when the daemon is down).
 #[tauri::command]
 pub async fn verify_binary(path: String) -> Result<String, String> {
-    super::run(&path, &["version"])
+    super::run(&path, &["--version"])
         .map(|s| s.lines().next().unwrap_or("").trim().to_string())
 }
 
-/// Append the install directory to the shell rc files' PATH.
+/// Run the installed binary and check it reports the requested version.
+fn verify_installed(path: &str, version: &str) -> Result<String, String> {
+    let out = super::run(path, &["--version"])?;
+    let line = out.lines().next().unwrap_or("").trim().to_string();
+    if line.contains(version) {
+        Ok(line)
+    } else {
+        Err(format!("expected version {version}, binary reports \"{line}\""))
+    }
+}
+
+/// Locate the runtime's CLI inside an extracted release archive. Podman's
+/// Linux asset ships `podman-remote-static-linux_<arch>`, macOS / Windows
+/// ship `podman` / `podman.exe`, Docker ships `docker/docker(.exe)`.
+fn find_binary(dir: &std::path::Path, runtime: &str) -> Option<PathBuf> {
+    let mut files = Vec::new();
+    collect_files(dir, &mut files);
+    let name_of = |p: &PathBuf| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+    let exact = [runtime.to_string(), format!("{runtime}.exe")];
+    if let Some(p) = files.iter().find(|p| exact.contains(&name_of(p))) {
+        return Some(p.clone());
+    }
+    if runtime == "podman" {
+        return files
+            .iter()
+            .find(|p| {
+                let n = name_of(p);
+                n.starts_with("podman-remote") && !n.ends_with(".1") && !n.ends_with(".md")
+            })
+            .cloned();
+    }
+    None
+}
+
+fn collect_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_files(&p, out);
+        } else {
+            out.push(p);
+        }
+    }
+}
+
+/// Make the install directory part of the user's PATH for new shells.
+/// Unix: appended to the zsh / bash rc files and fish's config. Windows:
+/// written to the user-scope Path through PowerShell.
 #[tauri::command]
 pub async fn add_to_path(dir: String) -> Result<(), String> {
     use std::io::Write;
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let line = format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n");
-    for rc in [".zshrc", ".bashrc"] {
-        let p = PathBuf::from(&home).join(rc);
-        let existing = std::fs::read_to_string(&p).unwrap_or_default();
-        if !existing.contains(&dir) {
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&p)
-            {
-                let _ = f.write_all(line.as_bytes());
-            }
+    if cfg!(windows) {
+        let script = format!(
+            "$p=[Environment]::GetEnvironmentVariable('Path','User'); \
+             if (($p -split ';') -notcontains '{dir}') {{ \
+               [Environment]::SetEnvironmentVariable('Path', ($p.TrimEnd(';') + ';{dir}'), 'User') }}"
+        );
+        return super::run("powershell", &["-NoProfile", "-Command", &script]).map(|_| ());
+    }
+    let home = super::home_dir();
+    let targets: [(PathBuf, String); 4] = [
+        (home.join(".zshrc"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (home.join(".bashrc"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (home.join(".profile"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (
+            home.join(".config").join("fish").join("config.fish"),
+            format!("\n# added by Dockman\nfish_add_path {dir}\n"),
+        ),
+    ];
+    for (rc, line) in targets {
+        // Only touch rc files that already exist, except the ones every
+        // account has; never create a fish config for a user without fish.
+        let is_fish = rc.ends_with("config.fish");
+        if is_fish && !rc.exists() {
+            continue;
+        }
+        let existing = std::fs::read_to_string(&rc).unwrap_or_default();
+        if existing.contains(&dir) {
+            continue;
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&rc) {
+            let _ = f.write_all(line.as_bytes());
         }
     }
     Ok(())
@@ -225,11 +293,28 @@ pub async fn download_binary(
     }
 
     std::thread::spawn(move || {
-        let progress = |phase: &str, percent: u32, message: &str| {
-            let _ = app.emit(
+        let runtime_for_log = runtime.clone();
+        let version_for_log = version.clone();
+        let app_for_progress = app.clone();
+        let progress = move |phase: &str, percent: u32, message: &str| {
+            if phase == "done" || phase == "error" {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                super::host::record_download(super::host::DownloadEntry {
+                    runtime: runtime_for_log.clone(),
+                    version: version_for_log.clone(),
+                    path: if phase == "done" { message.to_string() } else { String::new() },
+                    status: if phase == "done" { "installed".into() } else { "failed".into() },
+                    message: if phase == "error" { message.to_string() } else { String::new() },
+                    at: now,
+                });
+            }
+            let _ = app_for_progress.emit(
                 "download-progress",
                 serde_json::json!({
-                    "runtime": runtime,
+                    "runtime": runtime_for_log,
                     "phase": phase,
                     "percent": percent,
                     "message": message,
@@ -255,7 +340,9 @@ pub async fn download_binary(
             return;
         }
         let ed = extract_dir.to_string_lossy().into_owned();
-        let extracted = if ext == "zip" {
+        let extracted = if ext == "zip" && cfg!(windows) {
+            super::run("tar", &["-xf", &tmp_s, "-C", &ed]).is_ok()
+        } else if ext == "zip" {
             super::run("unzip", &["-o", "-q", &tmp_s, "-d", &ed]).is_ok()
         } else {
             super::run("tar", &["-xzf", &tmp_s, "-C", &ed]).is_ok()
@@ -265,22 +352,8 @@ pub async fn download_binary(
             return;
         }
 
-        progress("installing", 80, "");
-        let mut bin = super::run("find", &[&ed, "-type", "f", "-name", &runtime])
-            .unwrap_or_default()
-            .lines()
-            .next()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        if bin.is_none() && runtime == "podman" {
-            bin = super::run("find", &[&ed, "-type", "f", "-name", "podman-remote"])
-                .unwrap_or_default()
-                .lines()
-                .next()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-        }
-        let bin = match bin {
+        progress("installing", 75, "");
+        let bin = match find_binary(&extract_dir, &runtime) {
             Some(b) => b,
             None => {
                 progress("error", 0, "binary not found inside the archive");
@@ -289,7 +362,8 @@ pub async fn download_binary(
         };
 
         let _ = std::fs::create_dir_all(&install_dir);
-        let dest = PathBuf::from(&install_dir).join(&runtime);
+        let dest = PathBuf::from(&install_dir)
+            .join(format!("{runtime}{}", std::env::consts::EXE_SUFFIX));
         if let Err(e) = std::fs::copy(&bin, &dest) {
             progress("error", 0, &format!("install failed: {e}"));
             return;
@@ -297,7 +371,27 @@ pub async fn download_binary(
         let dest_s = dest.to_string_lossy().into_owned();
         #[cfg(unix)]
         {
-            let _ = super::run("chmod", &["+x", &dest_s]);
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) =
+                std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
+            {
+                progress("error", 0, &format!("could not make {dest_s} executable: {e}"));
+                return;
+            }
+        }
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_dir_all(&extract_dir);
+
+        // Run the installed file to prove it executes on this machine and is
+        // the version that was asked for. `--version` needs no engine.
+        progress("verifying", 90, "");
+        if let Err(e) = verify_installed(&dest_s, &version) {
+            progress(
+                "error",
+                0,
+                &format!("installed to {dest_s} but it failed verification: {e}"),
+            );
+            return;
         }
 
         progress("done", 100, &dest_s);

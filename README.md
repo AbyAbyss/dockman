@@ -37,7 +37,8 @@
 
 ## ✨ Highlights
 
-- 🐳 &nbsp;**Docker _and_ Podman, together** — drive both runtimes from one window, or filter to just one. Dockman can even retry on Docker when a Podman run hits an architecture mismatch.
+- 🐳 &nbsp;**Docker _and_ Podman, together** — drive both runtimes from one window, or filter to just one. When Podman can't run, pull or build an image because of a CPU architecture mismatch, Dockman retries on Docker with `--platform` (or offers to).
+- 📏 &nbsp;**Nothing made up** — every number on screen comes from the CLIs (`ps`, `stats`, `info`, `system df`, `image history`, `inspect`) or from what Dockman itself did. There is no demo mode.
 - ⚡ &nbsp;**Truly native** — built with [Tauri](https://tauri.app): a small, fast binary with no bundled browser and none of the Electron bloat.
 - 🧭 &nbsp;**Everything in one place** — containers, images, volumes, networks, builds, and the runtime binaries themselves.
 - 🆓 &nbsp;**Free and open source** — MIT licensed. No account, no paywall, telemetry off by default.
@@ -49,17 +50,17 @@
 
 | | |
 | --- | --- |
-| 📊 **Dashboard** | Live overview — running containers, cached images, volumes and networks; twin Docker / Podman engine cards; an activity feed and one-click quick commands. |
+| 📊 **Dashboard** | Live overview — running containers, images, volumes and networks; twin Docker / Podman engine cards; CPU / memory from `stats`, disk from `system df`; an activity feed of what Dockman did; one-click quick commands. |
 | 📦 **Containers** | Filterable, groupable table with start / stop / pause / restart / remove, plus the **Run Container** composer: image presets, name, runtime, port / env / volume mappings and a command override. |
 | ⌨️ **Built-in shell** | Open an interactive terminal into any running container, switch between `sh` and `bash`, and walk command history with the arrow keys. |
-| 🖼️ **Images** | Browse the local library, pull from any registry, see a storage breakdown, prune the unused, review top registries. |
-| 💾 **Volumes** | Usage and reclaimable space, active bind mounts, and scheduled backup snapshots. |
-| 🌐 **Networks** | A topology map of what's attached to what, plus live inbound / outbound bandwidth telemetry. |
-| 🔨 **Builds** | Start image builds with layer caching, follow a build history, and inspect the layer waterfall. |
-| ⚙️ **Binaries** | Install, update and switch between Docker and Podman CLI versions, with a setup checklist. |
-| 🎛️ **Settings** | Pick the active runtime, tune engine resources, and toggle capabilities like Compose v2, BuildKit and Rosetta. |
+| 🖼️ **Images** | Browse the local library, pull from any registry (with the architecture fallback), read each image's layer history, see which images are in use, prune the rest. |
+| 💾 **Volumes** | Sizes from `system df`, which container mounts each volume, every bind mount, prune. |
+| 🌐 **Networks** | A topology map of what's attached to what, traffic rates from `stats`, port mappings, container addresses. |
+| 🔨 **Builds** | Run builds with a picked context folder, keep a history with the step timings the CLI reported, edit the Dockerfile and save it back to disk. |
+| ⚙️ **Binaries** | Install official Docker and Podman CLI releases, verified by running the installed binary; a setup checklist that knows your OS. |
+| 🎛️ **Settings** | Pick the active runtime, resize the Podman machine, read engine facts, sign in to registries, check for updates. |
 
-> 💡 Plus the little things: an animated **scaffolding loader** while images pull, a `⌘K` **search** across containers, images and logs, and a clean **bento-grid** interface.
+> 💡 Plus the little things: an animated **scaffolding loader** while containers start, `⌘K` to jump to **search**, and a clean **bento-grid** interface.
 
 <a id="download"></a>
 
@@ -92,6 +93,10 @@ chmod +x Dockman_*.AppImage && ./Dockman_*.AppImage
 # or
 sudo apt install ./Dockman_*.deb
 ```
+
+## 🌐 Website
+
+[abyabyss.github.io/dockman](https://abyabyss.github.io/dockman) is built by [`.github/workflows/pages.yml`](.github/workflows/pages.yml) from the same code as the app. In a browser Dockman has no engine to talk to, so the site shows a landing page with the download links. For it to publish, **Settings → Pages → Source** must be set to **GitHub Actions**.
 
 <a id="screenshots"></a>
 
@@ -135,6 +140,8 @@ sudo apt install ./Dockman_*.deb
 npm install
 npm run tauri dev
 ```
+
+`npm run dev` on its own serves the website landing page only; the app needs the Tauri shell to reach Docker and Podman.
 
 ## 🏗️ Build from source
 

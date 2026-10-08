@@ -43,7 +43,9 @@ fn write_config(c: &Config) -> Result<(), String> {
     std::fs::write(config_path(), json).map_err(|e| e.to_string())
 }
 
-fn custom_path(runtime: &str) -> Option<String> {
+/// The binary path recorded for a runtime (set by the installer or the user),
+/// if it still exists.
+pub(crate) fn custom_path(runtime: &str) -> Option<String> {
     let cfg = read_config();
     let p = match runtime {
         "docker" => cfg.docker_path,
@@ -149,11 +151,7 @@ pub async fn set_runtime_path(runtime: String, path: String) -> Result<(), Strin
 /// return that directory's path.
 #[cfg(target_os = "macos")]
 fn ensure_podman_helpers() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let dir = std::path::PathBuf::from(&home)
-        .join(".local")
-        .join("libexec")
-        .join("podman");
+    let dir = super::home_dir().join(".local").join("libexec").join("podman");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let helpers = [
@@ -183,10 +181,7 @@ fn ensure_podman_helpers() -> Result<String, String> {
 /// binary can locate gvproxy / vfkit.
 #[cfg(target_os = "macos")]
 fn register_helper_dir(helpers_dir: &str) -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let conf_dir = std::path::PathBuf::from(&home)
-        .join(".config")
-        .join("containers");
+    let conf_dir = super::home_dir().join(".config").join("containers");
     std::fs::create_dir_all(&conf_dir).map_err(|e| e.to_string())?;
     let conf = conf_dir.join("containers.conf");
     let existing = std::fs::read_to_string(&conf).unwrap_or_default();
@@ -209,67 +204,96 @@ fn register_helper_dir(helpers_dir: &str) -> Result<(), String> {
     std::fs::write(&conf, updated).map_err(|e| e.to_string())
 }
 
+/// Start a Podman machine, creating it first if none exists.
+fn start_podman_machine(bin: &str) -> Result<(), String> {
+    let machines = super::run(bin, &["machine", "list", "--format", "json"])
+        .map(|s| super::parse_json_lines(&s))
+        .unwrap_or_default();
+    if machines.is_empty() {
+        super::run(bin, &["machine", "init"])
+            .map_err(|e| format!("podman machine init failed: {e}"))?;
+    }
+    match super::run(bin, &["machine", "start"]) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already running") => Ok(()),
+        Err(e) => Err(format!("podman machine start failed: {e}")),
+    }
+}
+
 #[tauri::command]
 pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
     match runtime.as_str() {
         "podman" => {
             let bin = super::resolve("podman")?;
-
-            // podman machine on macOS needs gvproxy + vfkit helper binaries.
+            if cfg!(target_os = "linux") {
+                // Podman is native on Linux: rootless needs no daemon at all.
+                if super::run(&bin, &["info"]).is_ok() {
+                    return Ok(());
+                }
+                return super::run("systemctl", &["--user", "start", "podman.socket"])
+                    .map(|_| ())
+                    .map_err(|e| format!("podman is not reachable and the user socket could not be started: {e}"));
+            }
+            // macOS / Windows run Podman inside a VM ("podman machine").
             #[cfg(target_os = "macos")]
             {
                 let helpers = ensure_podman_helpers()?;
                 register_helper_dir(&helpers)?;
             }
-
-            // A Podman machine (Linux VM) must exist before it can be started.
-            let machines = super::run(&bin, &["machine", "list", "--format", "json"])
-                .map(|s| super::parse_json_lines(&s))
-                .unwrap_or_default();
-            if machines.is_empty() {
-                super::run(&bin, &["machine", "init"])
-                    .map_err(|e| format!("podman machine init failed: {e}"))?;
-            }
-            match super::run(&bin, &["machine", "start"]) {
-                Ok(_) => Ok(()),
-                Err(e) if e.contains("already running") => Ok(()),
-                Err(e) => Err(format!("podman machine start failed: {e}")),
-            }
+            start_podman_machine(&bin)
         }
         "docker" => {
-            // The standalone CLI omits the registry credential helper — fetch it.
             let _ = super::ensure_docker_helpers();
-            // macOS has no native Docker daemon — `dockerd` is Linux-only, so a
-            // Docker engine is always a Linux VM. First launch a desktop engine
-            // app if one is installed (OrbStack / Docker Desktop / Rancher).
-            for app in ["OrbStack", "Docker", "Rancher Desktop"] {
-                let launched = std::process::Command::new("open")
-                    .args(["-a", app])
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
-                if launched {
+            if let Ok(bin) = super::resolve("docker") {
+                if super::run(&bin, &["info"]).is_ok() {
                     return Ok(());
                 }
             }
-            // Otherwise fall back to Colima — a CLI-managed Docker VM, the
-            // headless equivalent of `podman machine`. First run is slow: it
-            // boots a Linux VM with dockerd inside.
-            if let Some(colima) = super::which_optional("colima") {
-                return super::run(&colima, &["start"])
-                    .map(|_| ())
-                    .map_err(|e| {
-                        if e.contains("already running") {
-                            String::new()
-                        } else {
-                            format!("colima start failed: {e}")
-                        }
-                    })
-                    .or_else(|e| if e.is_empty() { Ok(()) } else { Err(e) });
+            if cfg!(target_os = "macos") {
+                // dockerd is Linux-only, so on macOS an engine is always a VM:
+                // a desktop app if one is installed, else Colima.
+                for app in ["OrbStack", "Docker", "Rancher Desktop"] {
+                    let launched = std::process::Command::new("open")
+                        .args(["-a", app])
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+                    if launched {
+                        return Ok(());
+                    }
+                }
+                if let Some(colima) = super::which_optional("colima") {
+                    return match super::run(&colima, &["start"]) {
+                        Ok(_) => Ok(()),
+                        Err(e) if e.contains("already running") => Ok(()),
+                        Err(e) => Err(format!("colima start failed: {e}")),
+                    };
+                }
+                return Err("no Docker engine found: open OrbStack or Docker Desktop, or \
+                            run `brew install colima` for a CLI-managed Docker daemon"
+                    .to_string());
             }
-            Err("no Docker engine found — open OrbStack or Docker Desktop, or \
-                 run `brew install colima` for a CLI-managed Docker daemon"
-                .to_string())
+            if cfg!(target_os = "windows") {
+                for exe in [
+                    r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+                    r"C:\Program Files\Rancher Desktop\Rancher Desktop.exe",
+                ] {
+                    if std::path::Path::new(exe).exists() {
+                        return std::process::Command::new(exe)
+                            .spawn()
+                            .map(|_| ())
+                            .map_err(|e| e.to_string());
+                    }
+                }
+                return Err("no Docker engine found: install Docker Desktop or Rancher Desktop".to_string());
+            }
+            // Linux: the daemon is a system service.
+            if super::run("systemctl", &["start", "docker"]).is_ok() {
+                return Ok(());
+            }
+            super::run("pkexec", &["systemctl", "start", "docker"])
+                .map(|_| ())
+                .map_err(|e| format!("could not start the docker service: {e}"))
         }
         other => Err(format!("unknown runtime: {other}")),
     }
@@ -279,10 +303,20 @@ pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
 pub async fn stop_runtime_daemon(runtime: String) -> Result<(), String> {
     match runtime.as_str() {
         "podman" => {
+            if cfg!(target_os = "linux") {
+                return Ok(());
+            }
             let bin = super::resolve("podman")?;
             super::run(&bin, &["machine", "stop"]).map(|_| ())
         }
-        "docker" => Ok(()),
+        "docker" => {
+            if cfg!(target_os = "macos") {
+                if let Some(colima) = super::which_optional("colima") {
+                    let _ = super::run(&colima, &["stop"]);
+                }
+            }
+            Ok(())
+        }
         other => Err(format!("unknown runtime: {other}")),
     }
 }
@@ -342,32 +376,49 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
     let mut engine_app = String::new();
 
     if runtime == "podman" {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let hdir = std::path::Path::new(&home)
-            .join(".local")
-            .join("libexec")
-            .join("podman");
-        helpers_ready = engine_running
-            || (hdir.join("gvproxy").exists() && hdir.join("vfkit").exists());
-        if cli_installed {
-            machine_exists = super::run(&bin, &["machine", "list", "--format", "json"])
-                .map(|s| !super::parse_json_lines(&s).is_empty())
-                .unwrap_or(false);
+        if cfg!(target_os = "linux") {
+            // Native: no VM, no helper binaries.
+            helpers_ready = true;
+            machine_exists = true;
+        } else {
+            let hdir = super::home_dir().join(".local").join("libexec").join("podman");
+            helpers_ready = cfg!(not(target_os = "macos"))
+                || engine_running
+                || (hdir.join("gvproxy").exists() && hdir.join("vfkit").exists());
+            if cli_installed {
+                machine_exists = super::run(&bin, &["machine", "list", "--format", "json"])
+                    .map(|s| !super::parse_json_lines(&s).is_empty())
+                    .unwrap_or(false);
+            }
         }
     } else if runtime == "docker" {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = super::home_dir();
         let app_exists = |name: &str| {
             std::path::Path::new(&format!("/Applications/{name}.app")).exists()
-                || std::path::Path::new(&format!("{home}/Applications/{name}.app"))
-                    .exists()
+                || home.join("Applications").join(format!("{name}.app")).exists()
         };
-        if app_exists("OrbStack") {
-            engine_app = "OrbStack".to_string();
-        } else if app_exists("Docker") {
-            engine_app = "Docker Desktop".to_string();
-        } else if super::which_optional("colima").is_some() {
-            engine_app = "Colima".to_string();
-        } else if engine_running {
+        if cfg!(target_os = "macos") {
+            if app_exists("OrbStack") {
+                engine_app = "OrbStack".to_string();
+            } else if app_exists("Docker") {
+                engine_app = "Docker Desktop".to_string();
+            } else if app_exists("Rancher Desktop") {
+                engine_app = "Rancher Desktop".to_string();
+            } else if super::which_optional("colima").is_some() {
+                engine_app = "Colima".to_string();
+            }
+        } else if cfg!(target_os = "windows") {
+            if std::path::Path::new(r"C:\Program Files\Docker\Docker\Docker Desktop.exe").exists() {
+                engine_app = "Docker Desktop".to_string();
+            } else if std::path::Path::new(r"C:\Program Files\Rancher Desktop\Rancher Desktop.exe").exists() {
+                engine_app = "Rancher Desktop".to_string();
+            }
+        } else if super::which_optional("dockerd").is_some()
+            || std::path::Path::new("/usr/bin/dockerd").exists()
+        {
+            engine_app = "dockerd".to_string();
+        }
+        if engine_app.is_empty() && engine_running {
             // Engine is reachable but provided by something we don't recognise.
             engine_app = "running".to_string();
         }
@@ -388,20 +439,17 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
 /// System / Homebrew installs are never touched.
 #[tauri::command]
 pub async fn remove_binary(runtime: String) -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let bin = std::path::PathBuf::from(&home)
+    let home = super::home_dir();
+    let bin = home
         .join(".local")
         .join("bin")
-        .join(&runtime);
+        .join(format!("{runtime}{}", std::env::consts::EXE_SUFFIX));
     let existed = bin.exists();
     if existed {
         std::fs::remove_file(&bin).map_err(|e| e.to_string())?;
     }
     if runtime == "podman" {
-        let helpers = std::path::PathBuf::from(&home)
-            .join(".local")
-            .join("libexec")
-            .join("podman");
+        let helpers = home.join(".local").join("libexec").join("podman");
         let _ = std::fs::remove_dir_all(&helpers);
     }
     // Clear the recorded custom path so detection falls back to PATH.

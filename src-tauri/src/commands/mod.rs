@@ -12,6 +12,7 @@ pub mod compose;
 pub mod containers;
 pub mod downloader;
 pub mod exec;
+pub mod host;
 pub mod images;
 pub mod networks;
 pub mod runtime;
@@ -49,32 +50,48 @@ impl Registry {
     }
 }
 
+/// The user's home directory (`HOME`, or `USERPROFILE` on Windows).
+pub fn home_dir() -> PathBuf {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
 /// Build a PATH that includes the usual binary locations. GUI processes on
 /// macOS launch without the interactive shell's PATH.
 pub fn shell_path() -> String {
-    let mut paths: Vec<String> = std::env::var("PATH")
-        .map(|p| p.split(':').map(String::from).collect())
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
-    let mut extras: Vec<String> = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/Applications/Docker.app/Contents/Resources/bin",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let home = home_dir();
+    let mut extras: Vec<PathBuf> = if cfg!(windows) {
+        vec![
+            PathBuf::from(r"C:\Program Files\Docker\Docker\resources\bin"),
+            PathBuf::from(r"C:\Program Files\RedHat\Podman"),
+        ]
+    } else {
+        [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/Applications/Docker.app/Contents/Resources/bin",
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+    };
     // The directory Dockman installs binaries + helpers into.
-    if let Ok(home) = std::env::var("HOME") {
-        extras.push(format!("{home}/.local/bin"));
-    }
+    extras.push(home.join(".local").join("bin"));
     for extra in extras {
         if !paths.iter().any(|p| p == &extra) {
             paths.push(extra);
         }
     }
-    paths.join(":")
+    std::env::join_paths(paths)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Docker's CLI invokes a credential helper (docker-credential-osxkeychain)
@@ -82,8 +99,7 @@ pub fn shell_path() -> String {
 /// download doesn't include it, so fetch the official helper if it's missing.
 #[cfg(target_os = "macos")]
 pub fn ensure_docker_helpers() -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let dir = std::path::PathBuf::from(&home).join(".local").join("bin");
+    let dir = home_dir().join(".local").join("bin");
     let dest = dir.join("docker-credential-osxkeychain");
     if dest.exists() {
         return Ok(());
@@ -146,30 +162,38 @@ pub fn ensure_docker_helpers() -> Result<(), String> {
 
 /// Resolve a runtime name ("docker" / "podman") to an absolute binary path.
 pub fn resolve(runtime: &str) -> Result<String, String> {
+    // A path recorded by the installer (or set in Settings) wins over PATH, so
+    // every command uses the same binary that detection reports.
+    if let Some(p) = runtime::custom_path(runtime) {
+        return Ok(p);
+    }
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Ok(p) = which::which_in(runtime, Some(shell_path()), &cwd) {
         return Ok(p.to_string_lossy().into_owned());
     }
     // User-local install directory used by the binary downloader.
-    if let Ok(home) = std::env::var("HOME") {
-        let local = format!("{home}/.local/bin/{runtime}");
-        if std::path::Path::new(&local).exists() {
-            return Ok(local);
-        }
+    let local = home_dir()
+        .join(".local")
+        .join("bin")
+        .join(format!("{runtime}{}", std::env::consts::EXE_SUFFIX));
+    if local.exists() {
+        return Ok(local.to_string_lossy().into_owned());
     }
-    let candidates: &[&str] = match runtime {
-        "docker" => &[
+    let candidates: &[&str] = match (runtime, cfg!(windows)) {
+        ("docker", false) => &[
             "/usr/local/bin/docker",
             "/opt/homebrew/bin/docker",
             "/usr/bin/docker",
             "/Applications/Docker.app/Contents/Resources/bin/docker",
         ],
-        "podman" => &[
+        ("podman", false) => &[
             "/opt/homebrew/bin/podman",
             "/usr/local/bin/podman",
             "/usr/bin/podman",
         ],
-        other => return Err(format!("unknown runtime: {other}")),
+        ("docker", true) => &[r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"],
+        ("podman", true) => &[r"C:\Program Files\RedHat\Podman\podman.exe"],
+        (other, _) => return Err(format!("unknown runtime: {other}")),
     };
     for c in candidates {
         if std::path::Path::new(c).exists() {
@@ -269,12 +293,20 @@ enum Pipe {
     Err(std::process::ChildStderr),
 }
 
+/// Expand a leading `~` to the home directory. CLI args are passed without a
+/// shell, so `~/proj` would otherwise reach the runtime literally.
+pub fn expand_home(path: &str) -> String {
+    match path.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
+            format!("{}{rest}", home_dir().to_string_lossy())
+        }
+        _ => path.to_string(),
+    }
+}
+
 /// The Dockman config directory (`~/.config/dockman`), created on demand.
 pub fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(home).join(".config").join("dockman");
+    let dir = home_dir().join(".config").join("dockman");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

@@ -1,4 +1,4 @@
-// Binaries — Binary Manager: a guided, trackable setup checklist plus
+// Binaries — runtime detection, a per-runtime setup checklist, and
 // download / install / reset of the official standalone Docker / Podman CLIs.
 
 import { useEffect, useRef, useState } from 'react';
@@ -7,19 +7,24 @@ import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
 import { RuntimeBadge } from '@/components/ui/Runtime';
-import { useRuntimes } from '@/hooks/useData';
+import { useHostInfo, useRuntimes } from '@/hooks/useData';
+import { useResource } from '@/hooks/useResource';
+import { logActivity, formatRelative } from '@/store/activityStore';
 import {
   BinaryCommands,
-  RuntimeCommands,
   DOWNLOAD_PROGRESS,
+  HostCommands,
+  RuntimeCommands,
   type BinaryRelease,
+  type DownloadEntry,
+  type HostInfo,
   type SetupStatus,
 } from '@/lib/commands';
-import { isTauri, listen, type UnlistenFn } from '@/lib/tauri';
-import { BINARY_MANIFEST, DOWNLOAD_HISTORY, RUNTIMES } from '@/data/seed';
+import { listen, type UnlistenFn } from '@/lib/tauri';
+import { RUNTIME_BRAND, RUNTIME_NAMES } from '@/data/runtimes';
 import type { RuntimeMeta, RuntimeName } from '@/types';
 
-type Phase = 'downloading' | 'extracting' | 'installing' | 'done' | 'error';
+type Phase = 'downloading' | 'extracting' | 'installing' | 'verifying' | 'done' | 'error';
 
 interface DownloadTask {
   rt: RuntimeName;
@@ -33,49 +38,28 @@ const PHASE_LABEL: Record<Phase, string> = {
   downloading: 'Downloading',
   extracting: 'Extracting',
   installing: 'Installing',
-  done: 'Installed',
+  verifying: 'Verifying',
+  done: 'Installed · verified',
   error: 'Failed',
 };
-
-const RUNTIME_KEYS: RuntimeName[] = ['docker', 'podman'];
-
-/** Browser-mode fallback release list (from the seed manifest). */
-function seedReleases(rt: RuntimeName): BinaryRelease[] {
-  return BINARY_MANIFEST[rt].versions.map((v) => ({
-    version: v.v,
-    url: '',
-    platform: BINARY_MANIFEST[rt].platform,
-    arch: 'arm64',
-  }));
-}
-
-/** Browser-mode fallback setup status. */
-function seedSetup(rt: RuntimeName): SetupStatus {
-  return {
-    runtime: rt,
-    cliInstalled: true,
-    cliVersion: RUNTIMES[rt].version,
-    engineRunning: RUNTIMES[rt].running,
-    helpersReady: true,
-    machineExists: true,
-    engineApp: rt === 'docker' ? 'OrbStack' : '',
-  };
-}
 
 // ─── Setup checklist ─────────────────────────────────────────────────────────
 
 function SetupChecklist({
   rt,
   status,
+  host,
   starting,
   onStart,
 }: {
   rt: RuntimeName;
   status: SetupStatus | null;
+  host: HostInfo | null;
   starting: boolean;
   onStart: () => void;
 }) {
-  const meta = RUNTIMES[rt];
+  const meta = RUNTIME_BRAND[rt];
+  const os = host?.os ?? '';
   const engineAvailable = !!status?.engineApp || !!status?.engineRunning;
   const steps =
     rt === 'docker'
@@ -90,15 +74,29 @@ function SetupChecklist({
           },
           { label: 'Engine running', done: !!status?.engineRunning },
         ]
-      : [
-          { label: 'Podman CLI installed', done: !!status?.cliInstalled },
-          { label: 'VM helpers · gvproxy, vfkit', done: !!status?.helpersReady },
-          { label: 'Podman machine created', done: !!status?.machineExists },
-          { label: 'Machine running', done: !!status?.engineRunning },
-        ];
+      : os === 'linux'
+        ? [
+            { label: 'Podman CLI installed', done: !!status?.cliInstalled },
+            { label: 'Podman reachable (native, no VM)', done: !!status?.engineRunning },
+          ]
+        : [
+            { label: 'Podman CLI installed', done: !!status?.cliInstalled },
+            ...(os === 'macos'
+              ? [{ label: 'VM helpers · gvproxy, vfkit', done: !!status?.helpersReady }]
+              : []),
+            { label: 'Podman machine created', done: !!status?.machineExists },
+            { label: 'Machine running', done: !!status?.engineRunning },
+          ];
   const allDone = steps.every((s) => s.done);
   const cliMissing = !status?.cliInstalled;
   const dockerNoEngine = rt === 'docker' && !engineAvailable;
+
+  const engineHint =
+    os === 'macos'
+      ? 'No engine found — install OrbStack or Docker Desktop, or run brew install colima, then start it here.'
+      : os === 'windows'
+        ? 'No engine found — install Docker Desktop, then start it here.'
+        : 'No engine found — install the docker package (dockerd) for your distribution.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -117,17 +115,16 @@ function SetupChecklist({
           </div>
         ))}
       </div>
-      {allDone ? (
+      {!status ? (
+        <div className="bin-opt-sub mono">Checking…</div>
+      ) : allDone ? (
         <div className="bin-opt-sub mono">{meta.name} is fully set up.</div>
       ) : cliMissing ? (
         <div className="bin-opt-sub mono">
           Download the {meta.name} CLI from the card below to begin.
         </div>
       ) : dockerNoEngine ? (
-        <div className="bin-opt-sub mono">
-          No engine found — install OrbStack or Docker Desktop, or run{' '}
-          <b>brew install colima</b>, then start it here.
-        </div>
+        <div className="bin-opt-sub mono">{engineHint}</div>
       ) : (
         <button
           className="action-btn primary"
@@ -150,6 +147,7 @@ function BinaryRuntimeCard({
   rt,
   meta,
   releases,
+  releaseError,
   selectedVersion,
   setSelectedVersion,
   task,
@@ -159,6 +157,7 @@ function BinaryRuntimeCard({
   rt: RuntimeName;
   meta: RuntimeMeta;
   releases: BinaryRelease[];
+  releaseError: string | null;
   selectedVersion: string;
   setSelectedVersion: (v: string) => void;
   task: DownloadTask | null;
@@ -192,7 +191,7 @@ function BinaryRuntimeCard({
             </div>
           )}
         </div>
-        {meta.found && (
+        {meta.found && latest && (
           <Pill tone={isLatest ? 'ok' : 'warn'}>
             {isLatest ? 'latest' : 'update available'}
           </Pill>
@@ -208,7 +207,7 @@ function BinaryRuntimeCard({
         <div className="version-list">
           {releases.length === 0 && (
             <div className="version-meta mono" style={{ padding: '8px 2px' }}>
-              Loading releases…
+              {releaseError ? `Could not load releases: ${releaseError}` : 'Loading releases…'}
             </div>
           )}
           {releases.map((r, i) => (
@@ -298,29 +297,35 @@ function BinaryRuntimeCard({
 
 export default function Binaries() {
   const { runtimes, refetch: refetchRuntimes } = useRuntimes();
-  const live = isTauri();
+  const host = useHostInfo().data;
+  const downloads = useResource<DownloadEntry[]>(() => HostCommands.downloads(), [], []);
 
   const [releases, setReleases] = useState<Record<RuntimeName, BinaryRelease[]>>({
-    docker: live ? [] : seedReleases('docker'),
-    podman: live ? [] : seedReleases('podman'),
+    docker: [],
+    podman: [],
+  });
+  const [releaseError, setReleaseError] = useState<Record<RuntimeName, string | null>>({
+    docker: null,
+    podman: null,
   });
   const [selectedVersion, setSelectedVersion] = useState<Record<RuntimeName, string>>({
     docker: '',
     podman: '',
   });
   const [setup, setSetup] = useState<Record<RuntimeName, SetupStatus | null>>({
-    docker: live ? null : seedSetup('docker'),
-    podman: live ? null : seedSetup('podman'),
+    docker: null,
+    podman: null,
   });
-  const [installDir, setInstallDir] = useState('~/.local/bin');
+  const [installDir, setInstallDir] = useState('');
   const [autoPath, setAutoPath] = useState(true);
   const [task, setTask] = useState<DownloadTask | null>(null);
   const [startingRt, setStartingRt] = useState<RuntimeName | null>(null);
+  const [startMsg, setStartMsg] = useState<string | null>(null);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   const loadSetup = () => {
-    if (!live) return;
-    RUNTIME_KEYS.forEach((rt) => {
+    RUNTIME_NAMES.forEach((rt) => {
       RuntimeCommands.setupStatus(rt)
         .then((s) => setSetup((p) => ({ ...p, [rt]: s })))
         .catch(() => undefined);
@@ -329,14 +334,7 @@ export default function Binaries() {
 
   // Fetch official releases, the install directory, and the setup status.
   useEffect(() => {
-    if (!live) {
-      setSelectedVersion({
-        docker: seedReleases('docker')[0]?.version ?? '',
-        podman: seedReleases('podman')[0]?.version ?? '',
-      });
-      return;
-    }
-    RUNTIME_KEYS.forEach((rt) => {
+    RUNTIME_NAMES.forEach((rt) => {
       BinaryCommands.releases(rt)
         .then((rs) => {
           setReleases((prev) => ({ ...prev, [rt]: rs }));
@@ -345,12 +343,11 @@ export default function Binaries() {
             [rt]: prev[rt] || rs[0]?.version || '',
           }));
         })
-        .catch(() => undefined);
+        .catch((e) => setReleaseError((prev) => ({ ...prev, [rt]: String(e) })));
     });
     BinaryCommands.defaultInstallDir().then(setInstallDir).catch(() => undefined);
     loadSetup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live]);
+  }, []);
 
   useEffect(
     () => () => {
@@ -359,31 +356,18 @@ export default function Binaries() {
     [],
   );
 
-  const simulate = (rt: RuntimeName, version: string) => {
-    const phases: { phase: Phase; percent: number }[] = [
-      { phase: 'downloading', percent: 15 },
-      { phase: 'extracting', percent: 55 },
-      { phase: 'installing', percent: 85 },
-      { phase: 'done', percent: 100 },
-    ];
-    let i = 0;
-    setTask({ rt, version, ...phases[0], message: '' });
-    const id = window.setInterval(() => {
-      i += 1;
-      setTask({ rt, version, ...phases[i], message: '' });
-      if (i >= phases.length - 1) {
-        window.clearInterval(id);
-        window.setTimeout(() => setTask(null), 2200);
-      }
-    }, 700);
-  };
-
   const startDownload = async (rt: RuntimeName, version: string) => {
     if (task || !version) return;
     const release = releases[rt].find((r) => r.version === version);
-
-    if (!live || !release || !release.url) {
-      simulate(rt, version);
+    if (!release || !release.url) {
+      setTask({
+        rt,
+        version,
+        phase: 'error',
+        percent: 0,
+        message: 'no download available for this version — the release list may have failed to load',
+      });
+      window.setTimeout(() => setTask(null), 5000);
       return;
     }
 
@@ -406,12 +390,16 @@ export default function Binaries() {
       if (p.phase === 'done') {
         if (p.message) RuntimeCommands.setPath(rt, p.message).catch(() => undefined);
         if (autoPath) BinaryCommands.addToPath(installDir).catch(() => undefined);
+        logActivity('install', rt, `${rt} v${version}`, p.message);
         refetchRuntimes();
         loadSetup();
+        downloads.refetch();
         window.setTimeout(() => setTask(null), 2800);
       }
       if (p.phase === 'error') {
-        window.setTimeout(() => setTask(null), 5000);
+        logActivity('error', rt, `${rt} v${version}`, p.message);
+        downloads.refetch();
+        window.setTimeout(() => setTask(null), 6000);
       }
     });
     BinaryCommands.download(rt, version, release.url, installDir).catch((e) => {
@@ -423,10 +411,12 @@ export default function Binaries() {
   const startEngine = async (rt: RuntimeName) => {
     if (startingRt) return;
     setStartingRt(rt);
+    setStartMsg(null);
     try {
       await RuntimeCommands.startDaemon(rt);
-    } catch {
-      /* the checklist re-fetch reflects the real state */
+      logActivity('start', rt, `${RUNTIME_BRAND[rt].name} engine`, 'started from Binaries');
+    } catch (e) {
+      setStartMsg(String(e));
     }
     refetchRuntimes();
     loadSetup();
@@ -440,25 +430,28 @@ export default function Binaries() {
   };
 
   const resetBinary = (rt: RuntimeName) => {
+    setResetMsg(null);
     RuntimeCommands.removeBinary(rt)
       .then(() => {
+        setResetMsg(`Removed the Dockman-installed ${rt} binary.`);
         refetchRuntimes();
         loadSetup();
       })
-      .catch(() => undefined);
+      .catch((e) => setResetMsg(String(e)));
   };
 
-  const totalInstalled = RUNTIME_KEYS.filter((rt) => runtimes[rt].found).length;
-  const upToDate = RUNTIME_KEYS.filter(
+  const totalInstalled = RUNTIME_NAMES.filter((rt) => runtimes[rt].found).length;
+  const upToDate = RUNTIME_NAMES.filter(
     (rt) => runtimes[rt].found && runtimes[rt].version === releases[rt][0]?.version,
   ).length;
+  const installed = downloads.data.filter((d) => d.status === 'installed').length;
 
   return (
     <div className="bento">
       <div className="stat-trio" style={{ gridColumn: 'span 6' }}>
-        <StatTile value={totalInstalled} label="Installed runtimes" section="Local" sectionIcon="extension" tone="violet" suffix={`/${RUNTIME_KEYS.length}`} />
+        <StatTile value={totalInstalled} label="Installed runtimes" section="Local" sectionIcon="extension" tone="violet" suffix={`/${RUNTIME_NAMES.length}`} />
         <StatTile value={upToDate} label="Up to date" section="Current" sectionIcon="bolt" tone="default" suffix={`/${Math.max(totalInstalled, 1)}`} />
-        <StatTile value={DOWNLOAD_HISTORY.length} label="Downloads" section="History" sectionIcon="arrow" tone="default" suffix="" />
+        <StatTile value={installed} label="Installs by Dockman" section="History" sectionIcon="arrow" tone="default" suffix="" />
       </div>
 
       <BentoCard
@@ -472,22 +465,26 @@ export default function Binaries() {
           <SetupChecklist
             rt="docker"
             status={setup.docker}
+            host={host}
             starting={startingRt === 'docker'}
             onStart={() => startEngine('docker')}
           />
           <SetupChecklist
             rt="podman"
             status={setup.podman}
+            host={host}
             starting={startingRt === 'podman'}
             onStart={() => startEngine('podman')}
           />
         </div>
+        {startMsg && <div className="rcm-error mono" style={{ marginTop: 10 }}>{startMsg}</div>}
       </BentoCard>
 
       <BinaryRuntimeCard
         rt="docker"
         meta={runtimes.docker}
         releases={releases.docker}
+        releaseError={releaseError.docker}
         selectedVersion={selectedVersion.docker}
         setSelectedVersion={(v) => setSelectedVersion((s) => ({ ...s, docker: v }))}
         task={task?.rt === 'docker' ? task : null}
@@ -498,6 +495,7 @@ export default function Binaries() {
         rt="podman"
         meta={runtimes.podman}
         releases={releases.podman}
+        releaseError={releaseError.podman}
         selectedVersion={selectedVersion.podman}
         setSelectedVersion={(v) => setSelectedVersion((s) => ({ ...s, podman: v }))}
         task={task?.rt === 'podman' ? task : null}
@@ -507,6 +505,7 @@ export default function Binaries() {
 
       <BentoCard section="Install" sectionIcon="settings" title="Where binaries land" span={6} headerAlign="left">
         <div className="bin-install">
+          {resetMsg && <div className="rcm-note mono">{resetMsg}</div>}
           <div className="bin-path-row">
             <div className="bc-section">
               <span>Install directory</span>
@@ -529,7 +528,9 @@ export default function Binaries() {
             <div>
               <div className="bin-opt-label">Automatically add to PATH</div>
               <div className="bin-opt-sub mono">
-                appends to ~/.zshrc and ~/.bashrc after a successful install
+                {host?.os === 'windows'
+                  ? 'adds the directory to your user Path after a successful install'
+                  : 'appends to ~/.zshrc, ~/.bashrc, ~/.profile (and fish, if present) after a successful install'}
               </div>
             </div>
           </label>
@@ -538,7 +539,7 @@ export default function Binaries() {
             <div>
               <div className="bin-opt-label">Verify after download</div>
               <div className="bin-opt-sub mono">
-                re-detects the runtime to confirm the install worked
+                runs the installed binary and checks it reports the chosen version
               </div>
             </div>
           </label>
@@ -548,9 +549,9 @@ export default function Binaries() {
       <BentoCard section="Platform" sectionIcon="cpu" title="Your machine" span={6} headerAlign="left">
         <div className="bin-platform">
           <div className="bin-platform-h">
-            <div className="bin-platform-os">macOS</div>
+            <div className="bin-platform-os">{host?.osLabel ?? '…'}</div>
             <div className="bin-platform-arch mono">
-              {runtimes.docker.arch || 'aarch64'} · Apple Silicon
+              {host ? `${host.arch} · ${host.archLabel}` : ''}
             </div>
           </div>
           <div className="bin-platform-note">
@@ -558,22 +559,33 @@ export default function Binaries() {
             <span>
               Dockman downloads only the official standalone CLI binaries —
               <b> download.docker.com</b> for Docker and the
-              <b> containers/podman</b> GitHub releases for Podman. Podman's VM
-              helpers (gvproxy, vfkit) are fetched automatically on first start.
+              <b> containers/podman</b> GitHub releases for Podman.
+              {host?.os === 'macos' &&
+                " Podman's VM helpers (gvproxy, vfkit) are fetched automatically on first start."}
             </span>
           </div>
           <div className="bin-compat">
             <div className="bin-compat-row">
               <div className="bin-compat-cell">
                 <RuntimeBadge rt="docker" size="sm" />
-                <span>needs an engine — OrbStack / Docker Desktop / Colima</span>
+                <span>
+                  {host?.os === 'linux'
+                    ? 'needs the dockerd service'
+                    : host?.os === 'windows'
+                      ? 'needs an engine — Docker Desktop or Rancher Desktop'
+                      : 'needs an engine — OrbStack / Docker Desktop / Colima'}
+                </span>
               </div>
               <Pill tone="ok">official</Pill>
             </div>
             <div className="bin-compat-row">
               <div className="bin-compat-cell">
                 <RuntimeBadge rt="podman" size="sm" />
-                <span>self-contained — podman machine + helpers</span>
+                <span>
+                  {host?.os === 'linux'
+                    ? 'self-contained — runs natively'
+                    : 'self-contained — podman machine (Linux VM)'}
+                </span>
               </div>
               <Pill tone="ok">official</Pill>
             </div>
@@ -581,20 +593,27 @@ export default function Binaries() {
         </div>
       </BentoCard>
 
-      <BentoCard section="History" sectionIcon="bolt" title="Recent Downloads" span={7} headerAlign="left">
-        <div className="bin-history">
-          {DOWNLOAD_HISTORY.map((h, i) => (
-            <div key={i} className="bin-history-row">
-              <RuntimeBadge rt={h.rt} size="sm" />
-              <div className="bin-history-body">
-                <div className="bin-history-v mono">v{h.v}</div>
-                <div className="bin-history-path mono">{h.path}</div>
+      <BentoCard section="History" sectionIcon="bolt" title="Installs by Dockman" span={7} headerAlign="left">
+        {downloads.data.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="arrow" size={20} />
+            <div>Nothing installed through Dockman yet.</div>
+          </div>
+        ) : (
+          <div className="bin-history">
+            {downloads.data.map((h, i) => (
+              <div key={i} className="bin-history-row">
+                <RuntimeBadge rt={h.runtime} size="sm" />
+                <div className="bin-history-body">
+                  <div className="bin-history-v mono">v{h.version}</div>
+                  <div className="bin-history-path mono">{h.path || h.message || '—'}</div>
+                </div>
+                <div className="bin-history-when mono">{formatRelative(h.at * 1000)}</div>
+                <Pill tone={h.status === 'installed' ? 'ok' : 'bad'}>{h.status}</Pill>
               </div>
-              <div className="bin-history-when mono">{h.when}</div>
-              <Pill tone={h.status === 'success' ? 'ok' : 'dim'}>{h.status}</Pill>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </BentoCard>
 
       <BentoCard section="Source" sectionIcon="extension" title="Where we download from" span={5} headerAlign="left">
@@ -603,19 +622,19 @@ export default function Binaries() {
             <RuntimeBadge rt="docker" size="sm" />
             <div className="bin-source-meta">
               <div className="bin-source-name">Docker CLI</div>
-              <div className="bin-source-url mono">{BINARY_MANIFEST.docker.source}</div>
+              <div className="bin-source-url mono">{host?.dockerSource ?? ''}</div>
             </div>
           </div>
           <div className="bin-source-row">
             <RuntimeBadge rt="podman" size="sm" />
             <div className="bin-source-meta">
               <div className="bin-source-name">Podman</div>
-              <div className="bin-source-url mono">{BINARY_MANIFEST.podman.source}</div>
+              <div className="bin-source-url mono">{host?.podmanSource ?? ''}</div>
             </div>
           </div>
           <div className="bin-source-note mono">
-            Only official, standalone CLI binaries — verified by re-detecting the
-            runtime after install.
+            Only official, standalone CLI binaries. Each install is verified by
+            running the binary and checking the version it reports.
           </div>
         </div>
       </BentoCard>

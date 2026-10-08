@@ -1,177 +1,224 @@
-// Images — registry & local library view with an animated pull flow.
+// Images — local library, registry pull (with the Podman → Docker
+// architecture fallback), layer history from `image history`, and a
+// registry breakdown computed from the image names.
 
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { StatTile } from '@/components/ui/StatTile';
 import { PillButton } from '@/components/ui/PillButton';
-import { Glyph, type IconName } from '@/components/ui/Icon';
+import { Glyph } from '@/components/ui/Icon';
 import { Pill } from '@/components/ui/Badge';
 import { Ring } from '@/components/ui/Charts';
 import { RuntimeBadge } from '@/components/ui/Runtime';
 import { RunContainerModal } from '@/components/ui/RunContainerModal';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
-import { useImages } from '@/hooks/useData';
-import { ContainerCommands, ImageCommands } from '@/lib/commands';
-import { RUNTIMES } from '@/data/seed';
-import type { RuntimeName } from '@/types';
+import { logActivity } from '@/store/activityStore';
+import { useImages, useRuntimes } from '@/hooks/useData';
+import { useResource } from '@/hooks/useResource';
+import { ContainerCommands, HostCommands, ImageCommands, runtimesFor, type ImageLayer } from '@/lib/commands';
+import { fallbackPlatform, isArchMismatch } from '@/lib/archFallback';
+import { formatBytes } from '@/lib/parsers';
+import { RUNTIME_BRAND } from '@/data/runtimes';
+import type { ImageItem, RuntimeName } from '@/types';
 
-const LAYER_CMDS = ['FROM base', 'COPY src', 'RUN npm ci', 'COPY dist', 'CMD ["node"]'];
-const LAYER_SIZES = ['64MB', '12MB', '24MB', '8MB', '< 1MB'];
-
-const SOURCES: { name: string; count: number; icon: IconName }[] = [
-  { name: 'Docker Hub', count: 7, icon: 'image' },
-  { name: 'ghcr.io', count: 3, icon: 'extension' },
-  { name: 'gcr.io', count: 1, icon: 'cpu' },
-  { name: 'self-hosted', count: 2, icon: 'volume' },
-];
-
-function sizeToMB(size: string): number {
-  const v = parseFloat(size);
-  if (Number.isNaN(v)) return 0;
-  return size.includes('GB') ? v * 1024 : v;
+/** Registry host of an image reference; bare names live on Docker Hub. */
+function registryOf(name: string): string {
+  const first = name.split('/')[0];
+  if (name.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost')) {
+    return first;
+  }
+  return 'docker.io';
 }
 
 export default function Images() {
   const query = useAppStore((s) => s.query);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
+  const containers = useAppStore((s) => s.containers);
   const refreshContainers = useAppStore((s) => s.refresh);
   const accent = ACCENTS[useThemeStore((s) => s.accent)].hex;
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
+  const { runtimes } = useRuntimes();
   const imagesRes = useImages(runtimeFilter);
   const images = imagesRes.data;
 
-  const [pullInput, setPullInput] = useState('postgres:16-alpine');
-  const [pulling, setPulling] = useState<{ name: string; progress: number } | null>(null);
+  const [pullInput, setPullInput] = useState('');
+  const [pulling, setPulling] = useState<{ name: string } | null>(null);
+  /** Outcome of the last pull; `dockerPlatform` offers the Docker fallback. */
+  const [pullMsg, setPullMsg] = useState<{
+    tone: 'error' | 'info';
+    text: string;
+    dockerPlatform?: string;
+  } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tagging, setTagging] = useState(false);
   const [tagValue, setTagValue] = useState('');
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [configureImage, setConfigureImage] = useState<{
     image: string;
     rt: RuntimeName;
   } | null>(null);
-  const pullTimer = useRef<number | null>(null);
 
-  useEffect(
-    () => () => {
-      if (pullTimer.current) clearInterval(pullTimer.current);
-    },
-    [],
-  );
+  /** Image references currently used by a container, per runtime. */
+  const inUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of containers) set.add(`${c.rt}|${c.image}`);
+    return set;
+  }, [containers]);
+  const isUsed = (img: ImageItem) =>
+    inUse.has(`${img.rt}|${img.name}:${img.tag}`) ||
+    inUse.has(`${img.rt}|${img.name}`) ||
+    (img.tag === 'latest' && inUse.has(`${img.rt}|${img.name}`)) ||
+    inUse.has(`${img.rt}|${img.id}`);
 
   const filtered = images.filter(
     (img) => !query || (img.name + img.tag).toLowerCase().includes(query.toLowerCase()),
   );
-  const totalSize = images.reduce((s, i) => s + sizeToMB(i.size), 0);
+  const totalBytes = images.reduce((s, i) => s + i.sizeBytes, 0);
+  const usedCount = images.filter(isUsed).length;
+  const usedBytes = images.filter(isUsed).reduce((s, i) => s + i.sizeBytes, 0);
+
+  const registries = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const img of images) map.set(registryOf(img.name), (map.get(registryOf(img.name)) ?? 0) + 1);
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [images]);
+
+  const runPull = (name: string, rt: RuntimeName, platform?: string) => {
+    // `pull` reports no progress over the CLI call, so the bar is
+    // indeterminate until the command returns.
+    setPulling({ name });
+
+    ImageCommands.pull(rt, name, platform)
+      .then(() => {
+        setPulling(null);
+        logActivity('pull', rt, name, platform ? `as ${platform}` : '');
+        if (platform) setPullMsg({ tone: 'info', text: `Pulled ${name} on docker as ${platform}` });
+        imagesRes.refetch();
+      })
+      .catch((e) => {
+        const msg = String(e);
+        if (rt === 'podman' && runtimes.docker.found && isArchMismatch(msg)) {
+          const plat = fallbackPlatform(runtimes.docker.arch);
+          logActivity('fallback', 'podman', name, `arch mismatch, docker ${plat}`);
+          if (autoFallback) {
+            setPullMsg({ tone: 'info', text: `Arch mismatch on podman, pulling on docker (${plat})` });
+            runPull(name, 'docker', plat);
+            return;
+          }
+          setPulling(null);
+          setPullMsg({ tone: 'error', text: msg, dockerPlatform: plat });
+          return;
+        }
+        setPulling(null);
+        logActivity('error', rt, name, msg);
+        setPullMsg({ tone: 'error', text: msg });
+      });
+  };
 
   const startPull = () => {
     if (!pullInput.trim() || pulling) return;
-    const name = pullInput;
-    setPulling({ name, progress: 0 });
-
-    if (imagesRes.live) {
-      const rt = runtimeFilter === 'podman' ? 'podman' : 'docker';
-      ImageCommands.pull(rt, name)
-        .then(() => imagesRes.refetch())
-        .catch(() => undefined);
-    }
-
-    let p = 0;
-    pullTimer.current = window.setInterval(() => {
-      p += 8 + Math.random() * 12;
-      if (p >= 100) {
-        if (pullTimer.current) clearInterval(pullTimer.current);
-        pullTimer.current = null;
-        setPulling(null);
-        return;
-      }
-      setPulling({ name, progress: Math.round(p) });
-    }, 280);
+    setPullMsg(null);
+    runPull(pullInput.trim(), runtimeFilter === 'podman' ? 'podman' : 'docker');
   };
 
   const detail = selected ? images.find((i) => i.id === selected) : null;
+  const history = useResource<ImageLayer[]>(
+    () => (detail ? HostCommands.imageHistory(detail.rt, detail.id) : Promise.resolve([])),
+    [],
+    [detail?.rt, detail?.id],
+  );
+
+  const report = (p: Promise<unknown>, okMsg: string, rt: RuntimeName, kind: 'remove' | 'prune' | 'pull' | 'run', target: string) =>
+    p
+      .then(() => {
+        setActionMsg(okMsg);
+        logActivity(kind, rt, target);
+        imagesRes.refetch();
+        refreshContainers();
+      })
+      .catch((e) => {
+        setActionMsg(String(e));
+        logActivity('error', rt, target, String(e));
+      });
 
   const removeImage = () => {
     if (!detail) return;
-    if (imagesRes.live) {
-      ImageCommands.remove(detail.rt, detail.id)
-        .then(() => imagesRes.refetch())
-        .catch(() => undefined);
-    }
+    report(ImageCommands.remove(detail.rt, detail.id), `Removed ${detail.name}:${detail.tag}`, detail.rt, 'remove', `${detail.name}:${detail.tag}`);
     setSelected(null);
   };
 
   const runImage = () => {
     if (!detail) return;
-    ContainerCommands.run(detail.rt, {
-      image: `${detail.name}:${detail.tag}`,
-      ports: [],
-      env: [],
-      volumes: [],
-      command: [],
-      detach: true,
-    })
-      .then(() => refreshContainers())
-      .catch(() => undefined);
+    report(
+      ContainerCommands.run(detail.rt, {
+        image: `${detail.name}:${detail.tag}`,
+        ports: [],
+        env: [],
+        volumes: [],
+        command: [],
+        detach: true,
+      }),
+      `Started a container from ${detail.name}:${detail.tag}`,
+      detail.rt,
+      'run',
+      `${detail.name}:${detail.tag}`,
+    );
   };
 
   const pushImage = () => {
     if (!detail) return;
-    ImageCommands.push(detail.rt, `${detail.name}:${detail.tag}`).catch(
-      () => undefined,
-    );
+    setActionMsg(`Pushing ${detail.name}:${detail.tag}…`);
+    ImageCommands.push(detail.rt, `${detail.name}:${detail.tag}`)
+      .then(() => setActionMsg(`Pushed ${detail.name}:${detail.tag}`))
+      .catch((e) => setActionMsg(String(e)));
   };
 
   const pruneImages = () => {
-    ImageCommands.prune(runtimeFilter === 'podman' ? 'podman' : 'docker')
-      .then(() => imagesRes.refetch())
-      .catch(() => undefined);
+    for (const rt of runtimesFor(runtimeFilter)) {
+      ImageCommands.prune(rt)
+        .then((out) => {
+          const line = out.split('\n').find((l) => l.toLowerCase().includes('reclaimed')) ?? 'done';
+          setActionMsg(`${rt}: ${line.trim()}`);
+          logActivity('prune', rt, 'images', line.trim());
+          imagesRes.refetch();
+        })
+        .catch((e) => setActionMsg(`${rt}: ${String(e)}`));
+    }
   };
 
   const openTag = () => {
     if (!detail) return;
-    setTagValue(`${detail.name}:`);
+    setTagValue(`${detail.name}:${detail.tag}`);
     setTagging(true);
   };
 
   const applyTag = () => {
     if (!detail || !tagValue.trim()) return;
     ImageCommands.tag(detail.rt, `${detail.name}:${detail.tag}`, tagValue.trim())
-      .then(() => imagesRes.refetch())
-      .catch(() => undefined);
+      .then(() => {
+        setActionMsg(`Tagged ${tagValue.trim()}`);
+        imagesRes.refetch();
+      })
+      .catch((e) => setActionMsg(String(e)));
     setTagging(false);
-    setTagValue('');
   };
 
   return (
     <div className="bento">
       <div className="stat-trio" style={{ gridColumn: 'span 5' }}>
         <StatTile value={images.length} label="Local images" section="Library" sectionIcon="image" tone="violet" />
-        <StatTile value={images.filter((i) => i.used).length} label="In use" section="Active" sectionIcon="bolt" tone="default" />
-        <StatTile value={images.filter((i) => !i.used).length} label="Unused" section="Reclaim" sectionIcon="trash" tone="warn" suffix="" />
+        <StatTile value={(totalBytes / 1e9).toFixed(2)} label="On disk" section="Storage" sectionIcon="disk" tone="default" suffix=" GB" />
+        <StatTile value={usedCount} label="In use" section="Active" sectionIcon="container" tone="default" suffix="" />
       </div>
 
-      <BentoCard section="Disk" sectionIcon="disk" title="Image Storage" span={4} headerAlign="left">
-        <div className="storage-row">
-          <Ring pct={Math.min(100, Math.round((totalSize / 4096) * 100))} accent={accent} size={72} />
-          <div className="storage-meta">
-            <div className="storage-val">{(totalSize / 1024).toFixed(1)} GB</div>
-            <div className="storage-sub mono">of 4 GB allocated</div>
-            <div className="storage-bar">
-              <div className="storage-seg" style={{ width: '38%', background: accent }} />
-              <div className="storage-seg" style={{ width: '22%', background: 'color-mix(in oklab, var(--accent) 60%, var(--bg))' }} />
-              <div className="storage-seg" style={{ width: '12%', background: 'color-mix(in oklab, var(--accent) 30%, var(--bg))' }} />
-            </div>
-            <div className="storage-legend">
-              <span>
-                <i style={{ background: accent }} /> active 38%
-              </span>
-              <span>
-                <i style={{ background: 'color-mix(in oklab, var(--accent) 60%, var(--bg))' }} /> cache 22%
-              </span>
-              <span>
-                <i style={{ background: 'color-mix(in oklab, var(--accent) 30%, var(--bg))' }} /> dangling 12%
-              </span>
-            </div>
+      <BentoCard section="Storage" sectionIcon="disk" title="Breakdown" span={4} headerAlign="left">
+        <div className="storage-row" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Ring pct={totalBytes ? Math.round((usedBytes / totalBytes) * 100) : 0} accent={accent} size={72} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="storage-val">{formatBytes(usedBytes)}</div>
+            <div className="storage-sub mono">used by running or stopped containers</div>
+            <div className="storage-sub mono">{formatBytes(totalBytes - usedBytes)} in unused images</div>
           </div>
         </div>
       </BentoCard>
@@ -183,12 +230,15 @@ export default function Images() {
             <input
               value={pullInput}
               onChange={(e) => setPullInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') startPull();
+              }}
               placeholder="image:tag"
             />
           </div>
-          <button className="action-btn primary" type="button" onClick={startPull} disabled={!!pulling}>
+          <button className="action-btn primary" type="button" onClick={startPull} disabled={!!pulling || !pullInput.trim()}>
             {pulling ? (
-              `${pulling.progress}%`
+              'Pulling…'
             ) : (
               <>
                 Pull <Glyph name="arrow" size={12} />
@@ -199,17 +249,40 @@ export default function Images() {
         {pulling && (
           <div className="pull-progress">
             <div className="pull-bar">
-              <div className="pull-fill" style={{ width: `${pulling.progress}%` }} />
+              <div className="pull-fill is-indeterminate" />
             </div>
-            <div className="pull-meta mono">{pulling.name} · downloading layers</div>
+            <div className="pull-meta mono">{pulling.name} · pulling</div>
+          </div>
+        )}
+        {pullMsg && !pulling && (
+          <div className={`${pullMsg.tone === 'error' ? 'rcm-error' : 'rcm-note'} mono`}>
+            {pullMsg.text}
+            {pullMsg.dockerPlatform && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="action-btn"
+                  type="button"
+                  onClick={() => {
+                    const plat = pullMsg.dockerPlatform;
+                    setPullMsg(null);
+                    runPull(pullInput.trim(), 'docker', plat);
+                  }}
+                >
+                  Pull on Docker as {pullMsg.dockerPlatform}
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className="pull-suggest">
-          {['nginx:alpine', 'redis:7.2', 'postgres:16', 'node:20'].map((s) => (
+          {['nginx:alpine', 'redis:7', 'postgres:16', 'node:20'].map((s) => (
             <button key={s} className="pull-chip mono" type="button" onClick={() => setPullInput(s)}>
               {s}
             </button>
           ))}
+        </div>
+        <div className="pull-meta mono">
+          pulls on {runtimeFilter === 'podman' ? 'podman' : 'docker'}
         </div>
       </BentoCard>
 
@@ -225,6 +298,7 @@ export default function Images() {
           </button>
         }
       >
+        {actionMsg && <div className="rcm-note mono" style={{ marginBottom: 10 }}>{actionMsg}</div>}
         {filtered.length === 0 ? (
           <div className="empty">
             <Glyph name="image" size={24} />
@@ -234,7 +308,7 @@ export default function Images() {
           <div className="img-grid">
             {filtered.map((img, i) => (
               <button
-                key={img.id + img.tag}
+                key={img.rt + img.id + img.tag}
                 type="button"
                 className={`img-card ${selected === img.id ? 'is-on' : ''}`}
                 onClick={() => {
@@ -246,18 +320,18 @@ export default function Images() {
                   <span className="thumb-id">
                     {(img.name.split('/').pop() || '?')[0].toUpperCase()}
                   </span>
-                  <span className="img-card-rt" style={{ background: RUNTIMES[img.rt].accent }} />
+                  <span className="img-card-rt" style={{ background: RUNTIME_BRAND[img.rt].accent }} />
                 </div>
                 <div className="img-card-body">
                   <div className="img-card-name">{img.name}</div>
                   <div className="img-card-tag mono">:{img.tag}</div>
                   <div className="img-card-meta">
-                    <Pill tone={img.used ? 'ok' : 'dim'}>{img.used ? 'in use' : 'unused'}</Pill>
+                    <Pill tone={isUsed(img) ? 'ok' : 'dim'}>{isUsed(img) ? 'in use' : 'unused'}</Pill>
                     <span className="mono">{img.size}</span>
                   </div>
                   <div className="img-card-foot mono">
                     <span>
-                      {img.layers} layers · {img.built}
+                      {img.id} · {img.built}
                     </span>
                     <RuntimeBadge rt={img.rt} size="xs" />
                   </div>
@@ -271,7 +345,7 @@ export default function Images() {
       <BentoCard
         section="Inspect"
         sectionIcon="image"
-        title={detail ? 'Image Detail' : 'Top Sources'}
+        title={detail ? 'Image Detail' : 'Registries'}
         span={4}
         headerAlign="left"
       >
@@ -291,7 +365,7 @@ export default function Images() {
               </div>
               <div>
                 <span>Layers</span>
-                <b>{detail.layers || '—'}</b>
+                <b>{history.loading ? '…' : history.data.length}</b>
               </div>
               <div>
                 <span>Built</span>
@@ -306,13 +380,19 @@ export default function Images() {
               <div className="bc-section">
                 <span>Layer history</span>
               </div>
-              {Array.from({ length: Math.min(detail.layers || 5, 5) }).map((_, i) => (
-                <div key={i} className="layer-row mono">
-                  <span className="layer-sha">sha:{(0x100000 + i * 0x4d2f).toString(16).slice(0, 6)}</span>
-                  <span className="layer-cmd">{LAYER_CMDS[i]}</span>
-                  <span className="layer-sz">{LAYER_SIZES[i]}</span>
+              {history.error && <div className="rcm-error mono">{history.error}</div>}
+              {history.data.slice(0, 12).map((l, i) => (
+                <div key={i} className="layer-row mono" title={l.createdBy}>
+                  <span className="layer-sha">{l.id && l.id !== '<missing>' ? l.id.slice(0, 7) : '·'}</span>
+                  <span className="layer-cmd">
+                    {l.createdBy.replace(/^\/bin\/sh -c (#\(nop\) )?/, '').slice(0, 60)}
+                  </span>
+                  <span className="layer-sz">{l.sizeBytes ? formatBytes(l.sizeBytes) : '0 B'}</span>
                 </div>
               ))}
+              {history.data.length > 12 && (
+                <div className="pull-meta mono">+{history.data.length - 12} more layers</div>
+              )}
             </div>
             <div className="det-actions">
               <button className="action-btn" type="button" onClick={runImage}>
@@ -360,10 +440,21 @@ export default function Images() {
               </div>
             )}
           </div>
+        ) : registries.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="image" size={20} />
+            <div>Pull an image to see where your images come from.</div>
+          </div>
         ) : (
           <div className="pill-grid">
-            {SOURCES.map((r) => (
-              <PillButton key={r.name} icon={r.icon} label={r.name} sub={`${r.count} images`} status="ok" />
+            {registries.map(([name, count]) => (
+              <PillButton
+                key={name}
+                icon={name === 'docker.io' ? 'image' : 'extension'}
+                label={name}
+                sub={`${count} ${count === 1 ? 'image' : 'images'}`}
+                status="ok"
+              />
             ))}
           </div>
         )}

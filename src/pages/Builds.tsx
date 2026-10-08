@@ -1,72 +1,42 @@
-// Builds — image build history, layer waterfall, an editable Dockerfile
-// viewer and the shared layer cache.
-//
-// Under Tauri a build streams real `docker build` output over events and the
-// finished record lands in the persisted history; in the browser the flow is
-// simulated and kept in local state.
+// Builds — run `docker build` / `podman build`, keep a history with the
+// step timings the CLI reported, inspect the Dockerfile and edit it in place.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
+import { RuntimeBadge } from '@/components/ui/Runtime';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
 import { useAppStore } from '@/store/appStore';
-import { useBuilds } from '@/hooks/useData';
-import { BuildCommands, buildOutputEvent, BUILDS_CHANGED } from '@/lib/commands';
+import { logActivity } from '@/store/activityStore';
+import { useBuilds, useRuntimes, useSystemDf } from '@/hooks/useData';
+import {
+  BuildCommands,
+  HostCommands,
+  buildOutputEvent,
+  BUILDS_CHANGED,
+} from '@/lib/commands';
+import { fallbackPlatform, isArchMismatch } from '@/lib/archFallback';
+import { formatBytes } from '@/lib/parsers';
 import { listen, type UnlistenFn } from '@/lib/tauri';
-import { LAYER_CACHE } from '@/data/seed';
-import type { BuildLayer, BuildRecord, RuntimeName } from '@/types';
+import type { RuntimeName } from '@/types';
 
 const INSTRUCTIONS = new Set([
   'FROM', 'RUN', 'CMD', 'LABEL', 'EXPOSE', 'ENV', 'ADD', 'COPY', 'ENTRYPOINT',
   'VOLUME', 'USER', 'WORKDIR', 'ARG', 'ONBUILD', 'STOPSIGNAL', 'HEALTHCHECK', 'SHELL',
 ]);
 
-const DEFAULT_DOCKERFILE = `# syntax=docker/dockerfile:1.7
-FROM node:20-bookworm AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \\
-    npm ci --omit=dev
-COPY src ./src
-RUN npm run build
-
-FROM gcr.io/distroless/nodejs20-debian12
-COPY --from=builder /app/dist /app
-WORKDIR /app
-EXPOSE 8080
-CMD ["server.js"]
-`;
-
-const SIM_LINES = [
-  'building image — streaming docker buildx output',
-  '#1 [internal] load build definition from Dockerfile',
-  '#2 [internal] load metadata for node:20-bookworm',
-  '#3 [builder 1/6] FROM node:20-bookworm',
-  '#4 [builder 2/6] COPY package*.json ./',
-  '#5 [builder 3/6] RUN npm ci --omit=dev',
-  '#6 [builder 4/6] RUN npm run build',
-  '#7 exporting layers',
-  '#8 writing image sha256:a3f1c0…  done',
-];
-
-function parseLayers(dockerfile: string, cachePercent: number): BuildLayer[] {
-  const steps = dockerfile
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#') && INSTRUCTIONS.has(l.split(/\s+/)[0]));
-  const cachedCount = Math.round((steps.length * cachePercent) / 100);
-  return steps.map((instruction, i) => ({
-    step: i + 1,
-    instruction,
-    cached: i < cachedCount,
-    durationMs: i < cachedCount ? 120 + ((i * 53) % 420) : 1100 + ((i * 317) % 4200),
-  }));
-}
+const DF_LABEL: Record<string, string> = {
+  images: 'Images',
+  containers: 'Containers',
+  volumes: 'Volumes',
+  build_cache: 'Build cache',
+  other: 'Other',
+};
 
 interface BuildTask {
-  progress: number;
+  id: string | null;
   lines: string[];
 }
 
@@ -103,42 +73,42 @@ export default function Builds() {
   const accent = ACCENTS[useThemeStore((s) => s.accent)].hex;
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const buildsRes = useBuilds(runtimeFilter);
+  const df = useSystemDf(runtimeFilter, 30000);
+  const autoFallback = useThemeStore((s) => s.m1Fallback);
+  const { runtimes } = useRuntimes();
 
-  const [localBuilds, setLocalBuilds] = useState<BuildRecord[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string>('');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [task, setTask] = useState<BuildTask | null>(null);
+  /** Note under the build form; `platform` offers a Docker rebuild. */
+  const [buildHint, setBuildHint] = useState<{ text: string; platform?: string } | null>(null);
   const [form, setForm] = useState({
-    tag: 'dockman/api-gw:0.14.3',
-    context: '~/work/api-platform',
+    tag: '',
+    context: '',
+    dockerfile: '',
     useCache: true,
     pushOnSuccess: false,
   });
-  const timer = useRef<number | null>(null);
   const unlisteners = useRef<UnlistenFn[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(
     () => () => {
-      if (timer.current) clearInterval(timer.current);
       unlisteners.current.forEach((u) => u());
     },
     [],
   );
 
-  const builds = useMemo(
-    () =>
-      [...localBuilds, ...buildsRes.data].filter(
-        (b) => runtimeFilter === 'all' || b.rt === runtimeFilter,
-      ),
-    [localBuilds, buildsRes.data, runtimeFilter],
-  );
+  // Keep the build log scrolled to the newest line.
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [task?.lines.length]);
 
+  const builds = buildsRes.data;
   const selected = builds.find((b) => b.id === selectedId) || builds[0];
-  const dockerfile = selected
-    ? overrides[selected.id] ?? selected.dockerfile
-    : '';
+  const dockerfile = selected?.dockerfile ?? '';
 
   const successCount = builds.filter((b) => b.status === 'success').length;
   const avgCache = builds.length
@@ -148,6 +118,7 @@ export default function Builds() {
   const selectBuild = (id: string) => {
     setSelectedId(id);
     setEditing(false);
+    setSaveMsg(null);
   };
 
   const startEdit = () => {
@@ -158,91 +129,111 @@ export default function Builds() {
 
   const saveEdit = () => {
     if (!selected) return;
-    setOverrides((o) => ({ ...o, [selected.id]: draft }));
-    setEditing(false);
+    BuildCommands.saveDockerfile(selected.id, draft)
+      .then(() => {
+        setSaveMsg(`Saved to ${selected.dockerfilePath}`);
+        setEditing(false);
+        buildsRes.refetch();
+      })
+      .catch((e) => setSaveMsg(String(e)));
   };
 
-  const startBuild = async () => {
-    if (task) return;
+  const pickContext = () => {
+    HostCommands.pickDirectory()
+      .then((dir) => {
+        if (dir) setForm((f) => ({ ...f, context: dir }));
+      })
+      .catch(() => undefined);
+  };
 
-    if (buildsRes.live) {
-      setTask({ progress: 8, lines: ['queued build — invoking docker build…'] });
-      try {
-        const id = await BuildCommands.start({
-          runtime: runtimeFilter === 'podman' ? 'podman' : 'docker',
-          tag: form.tag,
-          contextPath: form.context,
-          buildArgs: [],
-          useCache: form.useCache,
-          pushOnSuccess: form.pushOnSuccess,
-        });
-        const offOutput = await listen<string>(buildOutputEvent(id), (line) => {
-          setTask((t) =>
-            t ? { progress: Math.min(95, t.progress + 3), lines: [...t.lines, line] } : t,
-          );
-        });
-        const offDone = await listen<unknown>(BUILDS_CHANGED, () => {
-          offOutput();
-          offDone();
-          unlisteners.current = unlisteners.current.filter(
-            (u) => u !== offOutput && u !== offDone,
-          );
-          setTask(null);
-          setSelectedId(id);
-          buildsRes.refetch();
-        });
-        unlisteners.current.push(offOutput, offDone);
-      } catch {
-        setTask(null);
-      }
-      return;
-    }
-
-    // Browser simulation.
-    setTask({ progress: 0, lines: [SIM_LINES[0]] });
-    let i = 1;
-    timer.current = window.setInterval(() => {
-      if (i < SIM_LINES.length) {
-        const idx = i;
-        setTask((t) =>
-          t
-            ? {
-                progress: Math.round((idx / SIM_LINES.length) * 100),
-                lines: [...t.lines, SIM_LINES[idx]],
-              }
-            : t,
+  const runBuild = async (runtime: RuntimeName, platform?: string) => {
+    setTask({ id: null, lines: [`$ ${runtime} build -t ${form.tag} ${form.context}`] });
+    const output: string[] = [];
+    try {
+      const id = await BuildCommands.start({
+        runtime,
+        tag: form.tag.trim(),
+        contextPath: form.context.trim(),
+        dockerfile: form.dockerfile.trim() || undefined,
+        buildArgs: [],
+        platform,
+        useCache: form.useCache,
+        pushOnSuccess: form.pushOnSuccess,
+      });
+      setTask((t) => (t ? { ...t, id } : t));
+      const offOutput = await listen<string>(buildOutputEvent(id), (line) => {
+        output.push(line);
+        setTask((t) => (t ? { ...t, lines: [...t.lines, line] } : t));
+      });
+      const offDone = await listen<unknown>(BUILDS_CHANGED, async () => {
+        offOutput();
+        offDone();
+        unlisteners.current = unlisteners.current.filter(
+          (u) => u !== offOutput && u !== offDone,
         );
-        i += 1;
-        return;
-      }
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
-      const cachePercent = form.useCache ? 90 : 0;
-      const layers = parseLayers(DEFAULT_DOCKERFILE, cachePercent);
-      const record: BuildRecord = {
-        id: `b-${Date.now().toString(36)}`,
-        rt: (runtimeFilter === 'podman' ? 'podman' : 'docker') as RuntimeName,
-        tag: form.tag,
-        status: 'success',
-        when: 'just now',
-        duration: `${9 + Math.floor(Math.random() * 14)}s`,
-        cachePercent,
-        size: '142 MB',
-        finalSize: '142 MB',
-        layerCount: layers.length,
-        dockerfile: DEFAULT_DOCKERFILE,
-        layers,
-      };
-      setLocalBuilds((bs) => [record, ...bs]);
-      setSelectedId(record.id);
-      setEditing(false);
+        setSelectedId(id);
+        buildsRes.refetch();
+        df.refetch();
+
+        const rec = (await BuildCommands.list().catch(() => [])).find((b) => b.id === id);
+        logActivity(
+          rec?.status === 'success' ? 'build' : 'error',
+          runtime,
+          form.tag.trim(),
+          rec?.status === 'success' ? `${rec.duration} · ${rec.finalSize}` : rec?.error || 'build failed',
+        );
+
+        // A Podman build that failed on the CPU architecture (a base image
+        // with no variant for this host, or a RUN step hitting "exec format
+        // error") can be rebuilt on Docker for the foreign platform.
+        if (
+          rec?.status === 'failed' &&
+          runtime === 'podman' &&
+          runtimes.docker.found &&
+          isArchMismatch(output.join('\n'))
+        ) {
+          const plat = fallbackPlatform(runtimes.docker.arch);
+          logActivity('fallback', 'podman', form.tag.trim(), `arch mismatch, docker ${plat}`);
+          if (autoFallback) {
+            setBuildHint({ text: `Arch mismatch on podman, rebuilding on docker (${plat})` });
+            runBuild('docker', plat);
+            return;
+          }
+          setBuildHint({
+            text: "Podman couldn't build this image for its CPU architecture.",
+            platform: plat,
+          });
+        }
+        setTask(null);
+      });
+      unlisteners.current.push(offOutput, offDone);
+    } catch (e) {
       setTask(null);
-    }, 430);
+      setBuildHint({ text: String(e) });
+    }
+  };
+
+  const startBuild = () => {
+    if (task) return;
+    setBuildHint(null);
+    void runBuild(runtimeFilter === 'podman' ? 'podman' : 'docker');
+  };
+
+  const cancelBuild = () => {
+    if (!task?.id) return;
+    BuildCommands.cancel(task.id).catch(() => undefined);
+  };
+
+  const removeBuild = (id: string) => {
+    BuildCommands.remove(id)
+      .then(() => buildsRes.refetch())
+      .catch(() => undefined);
   };
 
   const maxDur = selected
     ? Math.max(...selected.layers.map((l) => l.durationMs), 1)
     : 1;
+  const canBuild = !task && form.tag.trim() !== '' && form.context.trim() !== '';
 
   return (
     <div className="bento">
@@ -268,24 +259,47 @@ export default function Builds() {
               <input
                 value={form.context}
                 onChange={(e) => setForm({ ...form, context: e.target.value })}
-                placeholder="build context path"
+                placeholder="build context folder (contains the Dockerfile)"
               />
+              <button className="text-btn" type="button" onClick={pickContext}>
+                browse
+              </button>
             </div>
-            <button className="action-btn primary" type="button" onClick={startBuild} disabled={!!task}>
-              {task ? `${task.progress}%` : (
-                <>
-                  <Glyph name="build" size={12} /> Build
-                </>
-              )}
-            </button>
+            {task ? (
+              <button className="action-btn danger" type="button" onClick={cancelBuild} disabled={!task.id}>
+                <Glyph name="stop" size={12} /> Cancel
+              </button>
+            ) : (
+              <button className="action-btn primary" type="button" onClick={startBuild} disabled={!canBuild}>
+                <Glyph name="build" size={12} /> Build on {runtimeFilter === 'podman' ? 'podman' : 'docker'}
+              </button>
+            )}
           </div>
+
+          {buildHint && !task && (
+            <div className="rcm-note mono">
+              {buildHint.text}
+              {buildHint.platform && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    className="action-btn"
+                    type="button"
+                    onClick={() => {
+                      const plat = buildHint.platform;
+                      setBuildHint(null);
+                      void runBuild('docker', plat);
+                    }}
+                  >
+                    Rebuild on Docker as {buildHint.platform}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {task ? (
             <div className="build-progress">
-              <div className="pull-bar">
-                <div className="pull-fill" style={{ width: `${task.progress}%` }} />
-              </div>
-              <div className="build-log">
+              <div className="build-log" ref={logRef}>
                 {task.lines.map((l, i) => (
                   <div key={i}>{l}</div>
                 ))}
@@ -293,6 +307,14 @@ export default function Builds() {
             </div>
           ) : (
             <div className="build-options">
+              <div className="pull-input">
+                <Glyph name="command" size={13} />
+                <input
+                  value={form.dockerfile}
+                  onChange={(e) => setForm({ ...form, dockerfile: e.target.value })}
+                  placeholder="Dockerfile path (optional, defaults to <context>/Dockerfile)"
+                />
+              </div>
               <label className="opt-row">
                 <input
                   type="checkbox"
@@ -314,26 +336,25 @@ export default function Builds() {
         </div>
       </BentoCard>
 
-      <BentoCard section="Cache" sectionIcon="disk" title="Layer Cache" span={5} headerAlign="left">
-        <div className="cache-summary">
-          <div className="cache-summary-val">{LAYER_CACHE.totalSize}</div>
-          <div className="cache-summary-sub mono">
-            across {LAYER_CACHE.cachedLayers} cached layers
+      <BentoCard section="Storage" sectionIcon="disk" title="Engine disk usage" span={5} headerAlign="left">
+        {df.data.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="disk" size={20} />
+            <div>{df.loading ? 'Reading system df…' : 'Engine not reachable.'}</div>
           </div>
-        </div>
-        <div className="pill-grid">
-          {LAYER_CACHE.images.map((img) => (
-            <div key={img.name} className="pill-btn">
-              <span className="pb-icon">
-                <Glyph name="image" size={13} />
-              </span>
-              <span className="pb-text">
-                <span className="pb-label">{img.name}</span>
-                <span className="pb-sub mono">{img.layers} layers</span>
-              </span>
-            </div>
-          ))}
-        </div>
+        ) : (
+          <div className="storage-rows">
+            {df.data.map((r) => (
+              <div key={`${r.rt}-${r.kind}`} className="storage-row">
+                <span>
+                  <RuntimeBadge rt={r.rt} size="xs" showLabel={false} /> {DF_LABEL[r.kind]} · {r.total}
+                </span>
+                <span className="mono">{formatBytes(r.sizeBytes)}</span>
+                <span className="mono">{formatBytes(r.reclaimableBytes)} reclaimable</span>
+              </div>
+            ))}
+          </div>
+        )}
       </BentoCard>
 
       <BentoCard
@@ -342,6 +363,17 @@ export default function Builds() {
         title={`Recent Builds · ${builds.length}`}
         span={5}
         headerAlign="left"
+        headerAside={
+          builds.length > 0 ? (
+            <button
+              className="text-btn"
+              type="button"
+              onClick={() => BuildCommands.clearHistory().then(() => buildsRes.refetch())}
+            >
+              Clear
+            </button>
+          ) : undefined
+        }
       >
         <div className="build-list">
           {builds.map((b) => (
@@ -355,12 +387,12 @@ export default function Builds() {
               <div className="build-row-body">
                 <div className="build-row-name mono">{b.tag}</div>
                 <div className="build-row-meta mono">
-                  {b.when} · {b.duration} · {b.cachePercent}% cache
+                  {b.rt} · {b.when} · {b.duration} · {b.cachePercent}% cache
                 </div>
               </div>
               <div className="build-row-tail">
                 <span className="build-size mono">{b.size}</span>
-                <Pill tone={b.status === 'success' ? 'ok' : 'bad'}>{b.status}</Pill>
+                <Pill tone={b.status === 'success' ? 'ok' : b.status === 'cancelled' ? 'dim' : 'bad'}>{b.status}</Pill>
               </div>
             </button>
           ))}
@@ -379,6 +411,13 @@ export default function Builds() {
         title={selected ? selected.tag : 'Build Detail'}
         span={7}
         headerAlign="left"
+        headerAside={
+          selected ? (
+            <button className="text-btn" type="button" onClick={() => removeBuild(selected.id)}>
+              Remove record
+            </button>
+          ) : undefined
+        }
       >
         {selected ? (
           <div className="build-detail">
@@ -391,7 +430,7 @@ export default function Builds() {
               </div>
               <div className="build-meta-cell">
                 <div className="bc-section">
-                  <span>Layers</span>
+                  <span>Steps</span>
                 </div>
                 <div className="build-meta-val">{selected.layerCount}</div>
               </div>
@@ -403,20 +442,23 @@ export default function Builds() {
               </div>
               <div className="build-meta-cell">
                 <div className="bc-section">
-                  <span>Final size</span>
+                  <span>Image size</span>
                 </div>
                 <div className="build-meta-val">{selected.finalSize}</div>
               </div>
             </div>
 
-            {selected.status === 'failed' && (
+            <div className="pull-meta mono" title={selected.dockerfilePath}>
+              {selected.contextPath || selected.dockerfilePath}
+            </div>
+
+            {selected.status !== 'success' && (
               <div className="build-fail">
                 <div className="bc-section">
-                  <span>Build failed</span>
+                  <span>Build {selected.status}</span>
                 </div>
                 <div className="build-fail-msg mono">
-                  process "/bin/sh -c npm run build" exited with code 1 — check the
-                  RUN step output
+                  {selected.error || `the ${selected.rt} build did not finish`}
                 </div>
               </div>
             )}
@@ -424,11 +466,11 @@ export default function Builds() {
             <div>
               <div className="bc-section" style={{ marginBottom: 8 }}>
                 <Glyph name="bolt" size={11} />
-                <span>Layer waterfall</span>
+                <span>Step timings</span>
               </div>
               <div className="layer-stack">
                 {selected.layers.map((l) => (
-                  <div key={l.step} className="layer-bar-row">
+                  <div key={l.step} className="layer-bar-row" title={l.instruction}>
                     <span className="layer-i mono">
                       {String(l.step).padStart(2, '0')}
                     </span>
@@ -444,7 +486,7 @@ export default function Builds() {
                       />
                     </span>
                     <span className="layer-bar-meta mono">
-                      {l.cached ? 'CACHED' : `${(l.durationMs / 1000).toFixed(1)}s`}
+                      {l.cached ? 'CACHED' : l.durationMs ? `${(l.durationMs / 1000).toFixed(1)}s` : '—'}
                     </span>
                   </div>
                 ))}
@@ -462,7 +504,7 @@ export default function Builds() {
       <BentoCard
         section="Source"
         sectionIcon="command"
-        title="Dockerfile"
+        title={selected?.dockerfilePath ? selected.dockerfilePath : 'Dockerfile'}
         span={12}
         headerAlign="left"
         headerAside={
@@ -473,7 +515,7 @@ export default function Builds() {
                   Cancel
                 </button>
                 <button className="action-btn primary" type="button" onClick={saveEdit}>
-                  <Glyph name="bolt" size={12} /> Save
+                  <Glyph name="bolt" size={12} /> Save to disk
                 </button>
               </div>
             ) : (
@@ -484,6 +526,7 @@ export default function Builds() {
           ) : undefined
         }
       >
+        {saveMsg && <div className="rcm-note mono" style={{ marginBottom: 10 }}>{saveMsg}</div>}
         {selected ? (
           editing ? (
             <textarea

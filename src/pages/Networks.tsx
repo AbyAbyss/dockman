@@ -1,24 +1,19 @@
-// Networks — topology map, bandwidth, port mappings and DNS.
+// Networks — topology from the container inventory, traffic rates from
+// `stats` NetIO deltas, port mappings from `ps`, addresses from inspect.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { StatTile } from '@/components/ui/StatTile';
 import { Glyph } from '@/components/ui/Icon';
 import { Pill, StatusDot } from '@/components/ui/Badge';
 import { Sparkline } from '@/components/ui/Charts';
+import { RuntimeBadge } from '@/components/ui/Runtime';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, useThemeStore } from '@/store/themeStore';
-import { useNetworks } from '@/hooks/useData';
+import { useContainerDetails, useNetworks } from '@/hooks/useData';
 import { SystemCommands } from '@/lib/commands';
-import { NET_SPARK } from '@/data/seed';
+import { formatBytes } from '@/lib/parsers';
 import type { Container, Network } from '@/types';
-
-const DNS_RECORDS = [
-  { host: 'postgres-main.dockman-backend', ip: '172.20.0.4' },
-  { host: 'redis-cache.dockman-backend', ip: '172.20.0.5' },
-  { host: 'api-gateway.dockman-edge', ip: '172.21.0.2' },
-  { host: 'grafana.observability', ip: '172.22.0.3' },
-];
 
 /** SVG topology — containers radiating from a central network node. */
 function Topology({
@@ -96,6 +91,11 @@ function Topology({
             </text>
           </g>
         ))}
+        {nodes.length === 0 && (
+          <text x={cx} y={cy + 70} textAnchor="middle" fontSize="10" fill="var(--dim)">
+            no containers attached
+          </text>
+        )}
       </svg>
       <div className="topo-meta">
         <div className="topo-meta-cell">
@@ -127,61 +127,85 @@ function Topology({
   );
 }
 
+function rate(bps: number): string {
+  return `${formatBytes(bps)}/s`;
+}
+
 export default function Networks() {
   const allContainers = useAppStore((s) => s.containers);
+  const history = useAppStore((s) => s.history);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const accent = ACCENTS[useThemeStore((s) => s.accent)].hex;
   const networksRes = useNetworks(runtimeFilter);
-  const networks = networksRes.data;
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const details = useContainerDetails(runtimeFilter, 15000);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const containers =
     runtimeFilter === 'all'
       ? allContainers
       : allContainers.filter((c) => c.rt === runtimeFilter);
 
-  const net = networks.find((n) => n.name === selectedName) ?? networks[0];
-  const totalAttached = networks.reduce((s, n) => s + n.attached, 0);
+  const networks = useMemo(
+    () =>
+      networksRes.data.map((n) => ({
+        ...n,
+        attached: containers.filter((c) => c.rt === n.rt && c.networks.includes(n.name)).length,
+      })),
+    [networksRes.data, containers],
+  );
 
-  // Map containers onto networks by stack convention.
-  const nwToCtrs = (nwName: string): Container[] => {
-    if (nwName.includes('backend'))
-      return containers
-        .filter((c) => ['data-store', 'api-platform'].includes(c.stack))
-        .slice(0, 6);
-    if (nwName.includes('edge'))
-      return containers
-        .filter((c) => c.name === 'nginx-edge' || c.name === 'api-gateway')
-        .slice(0, 2);
-    if (nwName === 'observability')
-      return containers.filter((c) => c.stack === 'observability').slice(0, 3);
-    return containers.slice(0, 4);
-  };
+  const key = (n: Network) => `${n.rt}/${n.name}`;
+  const net = networks.find((n) => key(n) === selectedKey) ?? networks[0];
+  const totalAttached = networks.reduce((s, n) => s + n.attached, 0);
+  const members = net
+    ? containers.filter((c) => c.rt === net.rt && c.networks.includes(net.name))
+    : [];
+
+  const latest = history[history.length - 1];
+  const inSeries = history.length ? history.map((s) => s.netIn) : [0];
+  const outSeries = history.length ? history.map((s) => s.netOut) : [0];
+  const pad = (a: number[]) => (a.length < 2 ? [a[0] ?? 0, a[0] ?? 0] : a);
+
+  const addresses = details.data
+    .flatMap((c) =>
+      c.networks
+        .filter((n) => n.ip)
+        .map((n) => ({ container: c.name, rt: c.rt, network: n.network, ip: n.ip, status: c.status })),
+    )
+    .sort((a, b) => a.network.localeCompare(b.network) || a.container.localeCompare(b.container));
+
+  const portRows = containers.flatMap((c) => c.ports.map((p) => ({ c, p })));
 
   return (
     <div className="bento">
       <div className="stat-trio" style={{ gridColumn: 'span 6' }}>
         <StatTile value={networks.length} label="Networks" section="Total" sectionIcon="network" tone="violet" />
         <StatTile value={totalAttached} label="Attachments" section="Endpoints" sectionIcon="container" tone="default" />
-        <StatTile value="14" label="MB/s aggregate" section="Throughput" sectionIcon="bolt" tone="default" suffix="" />
+        <StatTile
+          value={latest ? rate(latest.netIn + latest.netOut) : '—'}
+          label="aggregate now"
+          section="Throughput"
+          sectionIcon="bolt"
+          tone="default"
+          suffix=""
+        />
       </div>
 
-      <BentoCard section="Telemetry" sectionIcon="bolt" title="Bandwidth" span={6} headerAlign="left">
+      <BentoCard section="Telemetry" sectionIcon="bolt" title="Traffic" span={6} headerAlign="left">
         <div className="bw-row">
           <div className="bw-stat">
-            <div className="bw-label mono">INBOUND</div>
-            <div className="bw-val">
-              10.8<span> MB/s</span>
-            </div>
-            <Sparkline data={NET_SPARK} w={220} h={40} accent={accent} />
+            <div className="bw-label mono">RECEIVED</div>
+            <div className="bw-val">{latest ? rate(latest.netIn) : '—'}</div>
+            <Sparkline data={pad(inSeries)} w={220} h={40} accent={accent} />
           </div>
           <div className="bw-stat">
-            <div className="bw-label mono">OUTBOUND</div>
-            <div className="bw-val">
-              3.2<span> MB/s</span>
-            </div>
-            <Sparkline data={[...NET_SPARK].reverse()} w={220} h={40} accent="#e0b265" />
+            <div className="bw-label mono">SENT</div>
+            <div className="bw-val">{latest ? rate(latest.netOut) : '—'}</div>
+            <Sparkline data={pad(outSeries)} w={220} h={40} accent="#e0b265" />
           </div>
+        </div>
+        <div className="pull-meta mono">
+          sum over running containers, from `stats` NetIO sampled every 5 s
         </div>
       </BentoCard>
 
@@ -191,16 +215,17 @@ export default function Networks() {
             <div className="topo-tabs">
               {networks.map((n) => (
                 <button
-                  key={n.name}
+                  key={key(n)}
                   type="button"
-                  className={`fchip ${net.name === n.name ? 'is-on' : ''}`}
-                  onClick={() => setSelectedName(n.name)}
+                  className={`fchip ${key(net) === key(n) ? 'is-on' : ''}`}
+                  onClick={() => setSelectedKey(key(n))}
                 >
-                  {n.name} <span className="mono">{n.attached}</span>
+                  <RuntimeBadge rt={n.rt} size="xs" showLabel={false} /> {n.name}{' '}
+                  <span className="mono">{n.attached}</span>
                 </button>
               ))}
             </div>
-            <Topology net={net} containers={nwToCtrs(net.name)} accent={accent} />
+            <Topology net={net} containers={members} accent={accent} />
           </>
         ) : (
           <div className="empty">
@@ -211,60 +236,66 @@ export default function Networks() {
       </BentoCard>
 
       <BentoCard section="Routing" sectionIcon="network" title="Port Mappings" span={8} headerAlign="left">
-        <div className="port-table">
-          <div className="port-th">
-            <div>Container</div>
-            <div>Container Port</div>
-            <div>Host Port</div>
-            <div>Protocol</div>
-            <div>Action</div>
+        {portRows.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="network" size={20} />
+            <div>No container publishes a port.</div>
           </div>
-          {containers
-            .filter((c) => c.port !== '—')
-            .slice(0, 7)
-            .map((c) => {
-              const parts = c.port.split(',')[0].split(':');
-              const host = parts[0];
-              const cport = parts[1] || parts[0];
-              return (
-                <div key={c.id} className="port-row">
-                  <div className="port-ctr">
-                    <StatusDot status={c.status} /> {c.name}
-                  </div>
-                  <div className="mono">{cport}</div>
-                  <div className="mono">localhost:{host}</div>
-                  <Pill tone="ok">tcp</Pill>
+        ) : (
+          <div className="port-table">
+            <div className="port-th">
+              <div>Container</div>
+              <div>Container Port</div>
+              <div>Host Port</div>
+              <div>Protocol</div>
+              <div>Action</div>
+            </div>
+            {portRows.map(({ c, p }) => (
+              <div key={`${c.id}-${p.host}-${p.container}-${p.protocol}`} className="port-row">
+                <div className="port-ctr">
+                  <StatusDot status={c.status} /> {c.name}
+                </div>
+                <div className="mono">{p.container}</div>
+                <div className="mono">localhost:{p.host}</div>
+                <Pill tone="ok">{p.protocol}</Pill>
+                {p.protocol === 'tcp' ? (
                   <button
                     className="text-btn"
                     type="button"
                     onClick={() =>
-                      SystemCommands.openUrl(`http://localhost:${host}`).catch(
-                        () => undefined,
-                      )
+                      SystemCommands.openUrl(`http://localhost:${p.host}`).catch(() => undefined)
                     }
                   >
                     open ↗
                   </button>
-                </div>
-              );
-            })}
-        </div>
+                ) : (
+                  <span />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </BentoCard>
 
-      <BentoCard section="Resolution" sectionIcon="network" title="DNS" span={4} headerAlign="left">
-        <div className="dns-list">
-          {DNS_RECORDS.map((d) => (
-            <div key={d.host} className="dns-row">
-              <div className="dns-host mono">{d.host}</div>
-              <span className="dns-ip mono">{d.ip}</span>
-            </div>
-          ))}
-        </div>
-        <div className="det-actions">
-          <button className="action-btn" type="button">
-            <Glyph name="restart" size={12} /> Flush DNS
-          </button>
-        </div>
+      <BentoCard section="Addresses" sectionIcon="network" title="Container IPs" span={4} headerAlign="left">
+        {addresses.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="network" size={20} />
+            <div>{details.loading ? 'Inspecting containers…' : 'No running container has an address.'}</div>
+          </div>
+        ) : (
+          <div className="dns-list">
+            {addresses.map((a) => (
+              <div key={`${a.rt}-${a.container}-${a.network}`} className="dns-row">
+                <div className="dns-host mono" title={a.network}>
+                  {a.container}
+                  <span style={{ color: 'var(--dim)' }}>.{a.network}</span>
+                </div>
+                <span className="dns-ip mono">{a.ip}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </BentoCard>
     </div>
   );
