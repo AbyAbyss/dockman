@@ -1,7 +1,7 @@
-// Settings — runtime selection, engine resources, capabilities, registries,
-// updates, appearance and the danger zone.
+// Settings — runtime selection, binary paths, engine resources and facts,
+// registry logins, app updates, appearance and maintenance.
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BentoCard } from '@/components/ui/BentoCard';
 import { Glyph } from '@/components/ui/Icon';
@@ -9,8 +9,18 @@ import { Pill } from '@/components/ui/Badge';
 import { RuntimeBadge } from '@/components/ui/Runtime';
 import { useAppStore } from '@/store/appStore';
 import { useThemeStore } from '@/store/themeStore';
-import { useRuntimes } from '@/hooks/useData';
-import { SystemCommands } from '@/lib/commands';
+import { logActivity } from '@/store/activityStore';
+import { useEngineInfo, useHostInfo, useRuntimes } from '@/hooks/useData';
+import { useResource } from '@/hooks/useResource';
+import {
+  HostCommands,
+  RuntimeCommands,
+  SystemCommands,
+  runtimesFor,
+  type EngineResources,
+  type UpdateInfo,
+} from '@/lib/commands';
+import { formatBytes } from '@/lib/parsers';
 import { useWizardStore } from '@/store/wizardStore';
 import type {
   AccentName,
@@ -19,19 +29,6 @@ import type {
   RuntimeName,
   TabPosition,
 } from '@/types';
-
-const REGISTRIES = [
-  { name: 'Docker Hub', user: 'jordan-m', status: 'connected', icon: 'image' as const },
-  { name: 'ghcr.io', user: 'jordan-m', status: 'connected', icon: 'extension' as const },
-  { name: 'gcr.io', user: '—', status: 'disconnected', icon: 'cpu' as const },
-  { name: 'self-hosted', user: 'admin', status: 'connected', icon: 'volume' as const },
-];
-
-const CHANGELOG = [
-  { ver: '0.1.0', note: 'Builds panel · editable Dockerfile viewer' },
-  { ver: '0.0.9', note: 'Binary manager · runtime detection' },
-  { ver: '0.0.8', note: 'Bento dashboard · twin runtimes' },
-];
 
 const ACCENT_SWATCHES: [AccentName, string][] = [
   ['violet', '#a78bfa'],
@@ -49,6 +46,7 @@ function Slider({
   unit,
   onChange,
   note,
+  disabled,
 }: {
   label: string;
   value: number;
@@ -58,6 +56,7 @@ function Slider({
   unit: string;
   onChange: (v: number) => void;
   note: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="settings-slider">
@@ -73,6 +72,7 @@ function Slider({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
         className="range-input"
       />
@@ -105,30 +105,270 @@ function Feature({
   );
 }
 
+// ─── Engine resources ────────────────────────────────────────────────────────
+
+function ResourcesCard({ rt }: { rt: RuntimeName }) {
+  const res = useResource<EngineResources | null>(
+    () => HostCommands.engineResources(rt).catch(() => null),
+    null,
+    [rt],
+  );
+  const [cpus, setCpus] = useState(0);
+  const [mem, setMem] = useState(0);
+  const [disk, setDisk] = useState(0);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (res.data) {
+      setCpus(res.data.cpus);
+      setMem(res.data.memoryMb);
+      setDisk(res.data.diskGb);
+    }
+  }, [res.data]);
+
+  const apply = async () => {
+    setBusy(true);
+    setMsg('Stopping the machine, applying, starting it again…');
+    try {
+      await HostCommands.setMachineResources(cpus, mem, disk);
+      setMsg('Applied. The Podman machine is back up.');
+      logActivity('restart', 'podman', 'podman machine', `${cpus} cpus · ${mem} MB · ${disk} GB`);
+      res.refetch();
+    } catch (e) {
+      setMsg(String(e));
+    }
+    setBusy(false);
+  };
+
+  const r = res.data;
+  const dirty = r ? cpus !== r.cpus || mem !== r.memoryMb || disk !== r.diskGb : false;
+
+  return (
+    <BentoCard section="Engine" sectionIcon="settings" title={`Resources · ${rt}`} span={6} headerAlign="left">
+      {!r ? (
+        <div className="empty" style={{ padding: '20px 8px' }}>
+          <Glyph name="cpu" size={20} />
+          <div>{res.loading ? 'Reading engine resources…' : `${rt} engine is not reachable.`}</div>
+        </div>
+      ) : r.editable ? (
+        <>
+          <Slider label="CPUs" value={cpus} min={1} max={Math.max(16, r.cpus)} unit="cores" onChange={setCpus} note={r.source} />
+          <Slider label="Memory" value={mem} min={1024} max={Math.max(32768, r.memoryMb)} step={512} unit="MB" onChange={setMem} note="VM memory" />
+          <Slider label="Disk" value={disk} min={r.diskGb} max={Math.max(256, r.diskGb)} step={4} unit="GB" onChange={setDisk} note="can only grow" />
+          <div className="settings-foot">
+            <button className="action-btn primary" type="button" onClick={apply} disabled={!dirty || busy}>
+              <Glyph name="restart" size={12} /> {busy ? 'Applying…' : 'Apply & restart machine'}
+            </button>
+          </div>
+          {msg && <div className="rcm-note mono">{msg}</div>}
+        </>
+      ) : (
+        <>
+          <div className="fact-grid">
+            <div className="fact">
+              <div className="fact-k">CPUs</div>
+              <div className="fact-v">{r.cpus}</div>
+            </div>
+            <div className="fact">
+              <div className="fact-k">Memory</div>
+              <div className="fact-v">{formatBytes(r.memoryMb * 1024 * 1024)}</div>
+            </div>
+          </div>
+          <div className="ss-note mono" style={{ marginTop: 8 }}>
+            {r.source}. {rt === 'docker'
+              ? 'Docker engines are sized in the engine app (Docker Desktop, OrbStack, Colima) or by the host.'
+              : 'Native Podman uses the host directly.'}
+          </div>
+        </>
+      )}
+    </BentoCard>
+  );
+}
+
+// ─── Registries ──────────────────────────────────────────────────────────────
+
+function RegistriesCard({ rt }: { rt: RuntimeName }) {
+  const logins = useResource(() => HostCommands.registryLogins(), [], []);
+  const [form, setForm] = useState({ registry: 'docker.io', user: '', password: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const login = async () => {
+    if (!form.registry || !form.user || !form.password) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await HostCommands.registryLogin(rt, form.registry, form.user, form.password);
+      setMsg(`Signed in to ${form.registry} with ${rt}`);
+      setForm((f) => ({ ...f, password: '' }));
+      setShowForm(false);
+      logins.refetch();
+    } catch (e) {
+      setMsg(String(e));
+    }
+    setBusy(false);
+  };
+
+  const logout = async (runtime: RuntimeName, registry: string) => {
+    setMsg(null);
+    try {
+      await HostCommands.registryLogout(runtime, registry);
+      setMsg(`Signed out of ${registry}`);
+      logins.refetch();
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+
+  return (
+    <BentoCard
+      section="Identity"
+      sectionIcon="extension"
+      title="Registries"
+      span={6}
+      headerAlign="left"
+      headerAside={
+        <button className="text-btn" type="button" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? 'cancel' : `sign in with ${rt} →`}
+        </button>
+      }
+    >
+      {showForm && (
+        <div className="login-form">
+          <div className="pull-input">
+            <Glyph name="network" size={13} />
+            <input value={form.registry} onChange={(e) => setForm({ ...form, registry: e.target.value })} placeholder="registry, e.g. ghcr.io" />
+          </div>
+          <div className="pull-input">
+            <Glyph name="extension" size={13} />
+            <input value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} placeholder="username" />
+          </div>
+          <div className="pull-input">
+            <Glyph name="settings" size={13} />
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder="password or token"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') login();
+              }}
+            />
+          </div>
+          <button className="action-btn primary" type="button" onClick={login} disabled={busy}>
+            {busy ? '…' : 'Sign in'}
+          </button>
+        </div>
+      )}
+      {msg && <div className="rcm-note mono" style={{ marginTop: 8 }}>{msg}</div>}
+      {logins.data.length === 0 ? (
+        <div className="empty" style={{ padding: '20px 8px' }}>
+          <Glyph name="extension" size={20} />
+          <div>No registry credentials stored for Docker or Podman.</div>
+        </div>
+      ) : (
+        <div className="reg-list">
+          {logins.data.map((r) => (
+            <div key={r.runtime + r.registry} className="reg-row">
+              <span className="reg-icon">
+                <Glyph name="image" size={13} />
+              </span>
+              <div className="reg-meta">
+                <div className="reg-name">{r.registry}</div>
+                <div className="reg-user mono" title={r.file}>
+                  {r.runtime} credentials
+                </div>
+              </div>
+              <Pill tone="ok">signed in</Pill>
+              <button className="text-btn" type="button" onClick={() => logout(r.runtime, r.registry)}>
+                sign out
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </BentoCard>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function Settings() {
   const navigate = useNavigate();
   const theme = useThemeStore();
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const setRuntimeFilter = useAppStore((s) => s.setRuntimeFilter);
-  const { runtimes } = useRuntimes();
+  const { runtimes, refetch: refetchRuntimes } = useRuntimes();
+  const host = useHostInfo().data;
+  const engines = useEngineInfo(runtimeFilter);
   const replayWizard = useWizardStore((s) => s.setCompleted);
 
-  const [cpu, setCpu] = useState(8);
-  const [ram, setRam] = useState(8);
-  const [swap, setSwap] = useState(1);
-  const [disk, setDisk] = useState(60);
-  const [features, setFeatures] = useState({
-    composeV2: true,
-    buildKit: true,
-    rosetta: true,
-    swarm: false,
-    kubernetes: false,
-    experimentalCli: false,
-    autoStart: true,
-    sendUsage: false,
-  });
-  const toggleFeat = (k: keyof typeof features) =>
-    setFeatures((f) => ({ ...f, [k]: !f[k] }));
+  const primary: RuntimeName = runtimeFilter === 'podman' ? 'podman' : 'docker';
+
+  const [autoStart, setAutoStart] = useState<boolean | null>(null);
+  const [pathMsg, setPathMsg] = useState<string | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [pruneMsg, setPruneMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    RuntimeCommands.getStartOnLogin()
+      .then(setAutoStart)
+      .catch(() => setAutoStart(false));
+  }, []);
+
+  const toggleAutoStart = () => {
+    const next = !autoStart;
+    RuntimeCommands.setStartOnLogin(next)
+      .then(() => setAutoStart(next))
+      .catch(() => undefined);
+  };
+
+  const browsePath = (rt: RuntimeName) => {
+    HostCommands.pickFile()
+      .then(async (p) => {
+        if (!p) return;
+        await RuntimeCommands.setPath(rt, p);
+        setPathMsg(`${rt} now uses ${p}`);
+        refetchRuntimes();
+      })
+      .catch((e) => setPathMsg(String(e)));
+  };
+
+  const clearPath = (rt: RuntimeName) => {
+    RuntimeCommands.setPath(rt, '')
+      .then(() => {
+        setPathMsg(`${rt} path reset to auto-detect`);
+        refetchRuntimes();
+      })
+      .catch((e) => setPathMsg(String(e)));
+  };
+
+  const checkUpdate = () => {
+    setChecking(true);
+    setUpdateMsg(null);
+    HostCommands.checkForUpdate()
+      .then(setUpdate)
+      .catch((e) => setUpdateMsg(String(e)))
+      .finally(() => setChecking(false));
+  };
+
+  const pruneAll = async () => {
+    setPruneMsg(null);
+    for (const rt of runtimesFor(runtimeFilter)) {
+      try {
+        const out = await SystemCommands.prune(rt);
+        const line = out.split('\n').find((l) => l.toLowerCase().includes('reclaimed')) ?? 'done';
+        setPruneMsg((m) => `${m ? `${m}\n` : ''}${rt}: ${line.trim()}`);
+        logActivity('prune', rt, 'system', line.trim());
+      } catch (e) {
+        setPruneMsg((m) => `${m ? `${m}\n` : ''}${rt}: ${String(e)}`);
+      }
+    }
+  };
 
   return (
     <div className="bento">
@@ -150,7 +390,7 @@ export default function Settings() {
                 <div className="settings-rt-body">
                   <div className="settings-rt-name">{meta.name}</div>
                   <div className="settings-rt-v mono">
-                    v{meta.version} · {meta.arch}
+                    {meta.found ? `v${meta.version} · ${meta.arch}` : 'not installed'}
                   </div>
                 </div>
                 <div className="settings-rt-on">{runtimeFilter === rt ? '✓' : ''}</div>
@@ -179,9 +419,10 @@ export default function Settings() {
             onChange={(e) => theme.setM1Fallback(e.target.checked)}
           />
           <div>
-            <div className="bin-opt-label">M1 auto-fallback</div>
+            <div className="bin-opt-label">Architecture auto-fallback</div>
             <div className="bin-opt-sub mono">
-              If image fails on Podman (arch mismatch), retry on Docker (Rosetta)
+              If an image fails on Podman because of a CPU architecture mismatch, retry on
+              Docker with --platform (emulation)
             </div>
           </div>
         </div>
@@ -211,92 +452,87 @@ export default function Settings() {
                   </div>
                   <div className="bin-path-loc mono">{meta.path || '—'}</div>
                 </div>
-                <button className="text-btn" type="button">
+                <button className="text-btn" type="button" onClick={() => browsePath(rt)}>
                   Browse
+                </button>
+                <button className="text-btn" type="button" onClick={() => clearPath(rt)}>
+                  Auto
                 </button>
               </div>
             ),
           )}
         </div>
+        {pathMsg && <div className="rcm-note mono" style={{ marginTop: 8 }}>{pathMsg}</div>}
       </BentoCard>
 
-      {/* Engine resources */}
-      <BentoCard section="Engine" sectionIcon="settings" title="Resources" span={6} headerAlign="left">
-        <Slider label="CPUs" value={cpu} min={1} max={12} unit="cores" onChange={setCpu} note="up to 12 available" />
-        <Slider label="Memory" value={ram} min={1} max={16} unit="GB" onChange={setRam} note="of 16 GB host RAM" />
-        <Slider label="Swap" value={swap} min={0} max={4} step={0.5} unit="GB" onChange={setSwap} note="virtual memory" />
-        <Slider label="Disk image size" value={disk} min={16} max={256} step={4} unit="GB" onChange={setDisk} note="thin-provisioned" />
-        <div className="settings-foot">
-          <button className="action-btn primary" type="button">
-            <Glyph name="restart" size={12} /> Apply &amp; restart engine
-          </button>
-        </div>
-      </BentoCard>
+      <ResourcesCard rt={primary} />
 
-      {/* Features */}
-      <BentoCard section="Features" sectionIcon="extension" title="Capabilities" span={6} headerAlign="left">
-        <div className="feat-grid">
-          <Feature label="Compose v2" sub="docker compose subcommand" on={features.composeV2} onChange={() => toggleFeat('composeV2')} />
-          <Feature label="BuildKit" sub="next-gen builder" on={features.buildKit} onChange={() => toggleFeat('buildKit')} />
-          <Feature label="Rosetta" sub="x86_64 emulation on arm64" on={features.rosetta} onChange={() => toggleFeat('rosetta')} />
-          <Feature label="Swarm mode" sub="cluster orchestration" on={features.swarm} onChange={() => toggleFeat('swarm')} />
-          <Feature label="Kubernetes" sub="single-node K8s" on={features.kubernetes} onChange={() => toggleFeat('kubernetes')} />
-          <Feature label="Experimental CLI" sub="bleeding-edge commands" on={features.experimentalCli} onChange={() => toggleFeat('experimentalCli')} />
-          <Feature label="Auto-start engine" sub="on system login" on={features.autoStart} onChange={() => toggleFeat('autoStart')} />
-          <Feature label="Send usage stats" sub="anonymous telemetry" on={features.sendUsage} onChange={() => toggleFeat('sendUsage')} />
-        </div>
-      </BentoCard>
-
-      {/* Registries */}
-      <BentoCard section="Identity" sectionIcon="extension" title="Registries" span={6} headerAlign="left">
-        <div className="reg-list">
-          {REGISTRIES.map((r) => (
-            <div key={r.name} className="reg-row">
-              <span className="reg-icon">
-                <Glyph name={r.icon} size={13} />
-              </span>
-              <div className="reg-meta">
-                <div className="reg-name">{r.name}</div>
-                <div className="reg-user mono">{r.user}</div>
+      {/* Engine facts */}
+      <BentoCard section="Engine" sectionIcon="cpu" title="Engine facts" span={6} headerAlign="left">
+        {engines.data.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 8px' }}>
+            <Glyph name="cpu" size={20} />
+            <div>{engines.loading ? 'Reading engine info…' : 'No engine is reachable right now.'}</div>
+          </div>
+        ) : (
+          engines.data.map((e) => (
+            <div key={e.runtime} style={{ marginBottom: 10 }}>
+              <div className="bc-section" style={{ marginBottom: 6 }}>
+                <RuntimeBadge rt={e.runtime} size="xs" />
+                <span>v{e.serverVersion}</span>
               </div>
-              <Pill tone={r.status === 'connected' ? 'ok' : 'dim'}>{r.status}</Pill>
-              <button className="text-btn" type="button">
-                {r.status === 'connected' ? 'sign out' : 'sign in'}
-              </button>
+              <div className="fact-grid">
+                <div className="fact"><div className="fact-k">OS</div><div className="fact-v" title={e.operatingSystem}>{e.operatingSystem || e.osType}</div></div>
+                <div className="fact"><div className="fact-k">Arch</div><div className="fact-v">{e.architecture}</div></div>
+                <div className="fact"><div className="fact-k">Storage</div><div className="fact-v">{e.storageDriver}</div></div>
+                <div className="fact"><div className="fact-k">cgroups</div><div className="fact-v">v{e.cgroupVersion || '?'}</div></div>
+                <div className="fact"><div className="fact-k">Rootless</div><div className="fact-v">{e.rootless ? 'yes' : 'no'}</div></div>
+                <div className="fact"><div className="fact-k">Running</div><div className="fact-v">{e.containersRunning} containers · {e.images} images</div></div>
+              </div>
             </div>
-          ))}
+          ))
+        )}
+        <div className="feat-grid" style={{ marginTop: 8 }}>
+          <Feature
+            label="Start Dockman on login"
+            sub={autoStart === null ? 'checking…' : 'launches minimized'}
+            on={!!autoStart}
+            onChange={toggleAutoStart}
+          />
         </div>
       </BentoCard>
+
+      <RegistriesCard rt={primary} />
 
       {/* Updates */}
       <BentoCard section="Software" sectionIcon="restart" title="Updates" span={6} headerAlign="left">
         <div className="update-state">
           <div className="update-info">
-            <div className="update-version">0.1.0</div>
-            <div className="update-status mono">up to date · last checked 12m ago</div>
-          </div>
-          <Pill tone="ok">latest</Pill>
-        </div>
-        <div className="bc-section" style={{ marginTop: 8 }}>
-          <span>Update channel</span>
-        </div>
-        <div className="fchip-row">
-          {['stable', 'beta', 'edge'].map((c) => (
-            <button key={c} type="button" className={`fchip ${c === 'stable' ? 'is-on' : ''}`}>
-              {c}
-            </button>
-          ))}
-        </div>
-        <div className="changelog">
-          <div className="bc-section">
-            <span>Recent changes</span>
-          </div>
-          {CHANGELOG.map((c) => (
-            <div key={c.ver} className="changelog-row mono">
-              <span className="cl-ver">{c.ver}</span>
-              <span className="cl-note">{c.note}</span>
+            <div className="update-version">{host?.appVersion ?? '…'}</div>
+            <div className="update-status mono">
+              {update
+                ? update.updateAvailable
+                  ? `v${update.latest} is available`
+                  : `up to date · latest is v${update.latest}`
+                : 'not checked yet'}
             </div>
-          ))}
+          </div>
+          {update && <Pill tone={update.updateAvailable ? 'warn' : 'ok'}>{update.updateAvailable ? 'update' : 'latest'}</Pill>}
+        </div>
+        <div className="det-actions">
+          <button className="action-btn" type="button" onClick={checkUpdate} disabled={checking}>
+            <Glyph name="restart" size={12} /> {checking ? 'Checking…' : 'Check for updates'}
+          </button>
+          {update?.updateAvailable && (
+            <button className="action-btn primary" type="button" onClick={() => SystemCommands.openUrl(update.url)}>
+              Download v{update.latest} <Glyph name="arrow" size={12} />
+            </button>
+          )}
+        </div>
+        {updateMsg && <div className="rcm-error mono">{updateMsg}</div>}
+        <div className="ss-note mono" style={{ marginTop: 8 }}>
+          Checks github.com/AbyAbyss/dockman/releases. Installers are not signed yet; see the
+          first-launch notes in the README.
         </div>
       </BentoCard>
 
@@ -444,7 +680,7 @@ export default function Settings() {
         </div>
       </BentoCard>
 
-      {/* Danger zone */}
+      {/* Maintenance */}
       <BentoCard section="Maintenance" sectionIcon="trash" title="Reset" span={4} headerAlign="left" className="bc-danger">
         <div className="danger-list">
           <div className="danger-row">
@@ -464,34 +700,19 @@ export default function Settings() {
             <div>
               <div className="danger-label">Prune everything</div>
               <div className="danger-sub mono">
-                Containers, unused images, networks, build cache
+                Stopped containers, dangling images, unused networks, build cache
+                {runtimeFilter === 'all' ? ' · both runtimes' : ` · ${runtimeFilter}`}
               </div>
             </div>
-            <button
-              className="action-btn danger"
-              type="button"
-              onClick={() =>
-                SystemCommands.prune(
-                  runtimeFilter === 'podman' ? 'podman' : 'docker',
-                ).catch(() => undefined)
-              }
-            >
+            <button className="action-btn danger" type="button" onClick={pruneAll}>
               Prune
             </button>
           </div>
-          <div className="danger-row">
-            <div>
-              <div className="danger-label">Reset to factory</div>
-              <div className="danger-sub mono">Re-create engine VM · keeps registries</div>
-            </div>
-            <button className="action-btn danger" type="button">
-              Reset
-            </button>
-          </div>
+          {pruneMsg && <div className="rcm-note mono">{pruneMsg}</div>}
           <div className="danger-row">
             <div>
               <div className="danger-label">Quit Dockman</div>
-              <div className="danger-sub mono">Stop the engine and exit</div>
+              <div className="danger-sub mono">Engines keep running</div>
             </div>
             <button
               className="action-btn"

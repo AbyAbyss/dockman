@@ -4,7 +4,7 @@
 mod commands;
 
 use commands::{
-    builds, compose, containers, downloader, exec, images, networks, runtime, system,
+    builds, compose, containers, downloader, exec, host, images, networks, runtime, system,
     volumes,
 };
 
@@ -21,6 +21,24 @@ pub fn run() {
         ))
         .manage(commands::Registry::default())
         .invoke_handler(tauri::generate_handler![
+            // host + engine facts
+            host::get_host_info,
+            host::get_engine_info,
+            host::system_df,
+            host::volume_usage,
+            host::image_history,
+            host::list_container_details,
+            host::list_downloads,
+            host::list_registry_logins,
+            host::registry_login,
+            host::registry_logout,
+            host::get_engine_resources,
+            host::set_machine_resources,
+            host::check_for_update,
+            host::write_text_file,
+            compose::pick_directory,
+            compose::pick_file,
+            builds::save_build_dockerfile,
             // runtime
             runtime::detect_runtime,
             runtime::detect_all_runtimes,

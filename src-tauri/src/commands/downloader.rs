@@ -21,7 +21,7 @@ pub struct BinaryRelease {
 }
 
 /// download.docker.com path component for the current OS.
-fn docker_os() -> &'static str {
+pub(crate) fn docker_os() -> &'static str {
     match std::env::consts::OS {
         "macos" => "mac",
         "windows" => "win",
@@ -30,7 +30,7 @@ fn docker_os() -> &'static str {
 }
 
 /// Compare two dotted numeric version strings (e.g. "26.1.4").
-fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
     let pa: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
     let pb: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
     pa.cmp(&pb)
@@ -173,10 +173,7 @@ pub async fn get_available_releases(
 /// Default install directory for downloaded binaries (`~/.local/bin`).
 #[tauri::command]
 pub async fn get_default_install_dir() -> Result<String, String> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "no home directory".to_string())?;
-    let dir = PathBuf::from(home).join(".local").join("bin");
+    let dir = super::home_dir().join(".local").join("bin");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().into_owned())
 }
@@ -239,23 +236,43 @@ fn collect_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Append the install directory to the shell rc files' PATH.
+/// Make the install directory part of the user's PATH for new shells.
+/// Unix: appended to the zsh / bash rc files and fish's config. Windows:
+/// written to the user-scope Path through PowerShell.
 #[tauri::command]
 pub async fn add_to_path(dir: String) -> Result<(), String> {
     use std::io::Write;
-    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
-    let line = format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n");
-    for rc in [".zshrc", ".bashrc"] {
-        let p = PathBuf::from(&home).join(rc);
-        let existing = std::fs::read_to_string(&p).unwrap_or_default();
-        if !existing.contains(&dir) {
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&p)
-            {
-                let _ = f.write_all(line.as_bytes());
-            }
+    if cfg!(windows) {
+        let script = format!(
+            "$p=[Environment]::GetEnvironmentVariable('Path','User'); \
+             if (($p -split ';') -notcontains '{dir}') {{ \
+               [Environment]::SetEnvironmentVariable('Path', ($p.TrimEnd(';') + ';{dir}'), 'User') }}"
+        );
+        return super::run("powershell", &["-NoProfile", "-Command", &script]).map(|_| ());
+    }
+    let home = super::home_dir();
+    let targets: [(PathBuf, String); 4] = [
+        (home.join(".zshrc"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (home.join(".bashrc"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (home.join(".profile"), format!("\n# added by Dockman\nexport PATH=\"$PATH:{dir}\"\n")),
+        (
+            home.join(".config").join("fish").join("config.fish"),
+            format!("\n# added by Dockman\nfish_add_path {dir}\n"),
+        ),
+    ];
+    for (rc, line) in targets {
+        // Only touch rc files that already exist, except the ones every
+        // account has; never create a fish config for a user without fish.
+        let is_fish = rc.ends_with("config.fish");
+        if is_fish && !rc.exists() {
+            continue;
+        }
+        let existing = std::fs::read_to_string(&rc).unwrap_or_default();
+        if existing.contains(&dir) {
+            continue;
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&rc) {
+            let _ = f.write_all(line.as_bytes());
         }
     }
     Ok(())
@@ -276,11 +293,28 @@ pub async fn download_binary(
     }
 
     std::thread::spawn(move || {
-        let progress = |phase: &str, percent: u32, message: &str| {
-            let _ = app.emit(
+        let runtime_for_log = runtime.clone();
+        let version_for_log = version.clone();
+        let app_for_progress = app.clone();
+        let progress = move |phase: &str, percent: u32, message: &str| {
+            if phase == "done" || phase == "error" {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                super::host::record_download(super::host::DownloadEntry {
+                    runtime: runtime_for_log.clone(),
+                    version: version_for_log.clone(),
+                    path: if phase == "done" { message.to_string() } else { String::new() },
+                    status: if phase == "done" { "installed".into() } else { "failed".into() },
+                    message: if phase == "error" { message.to_string() } else { String::new() },
+                    at: now,
+                });
+            }
+            let _ = app_for_progress.emit(
                 "download-progress",
                 serde_json::json!({
-                    "runtime": runtime,
+                    "runtime": runtime_for_log,
                     "phase": phase,
                     "percent": percent,
                     "message": message,

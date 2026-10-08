@@ -9,6 +9,7 @@ import {
   parseNetwork,
   parseStat,
   parseVolume,
+  type ContainerStat,
   type Raw,
 } from './parsers';
 import type {
@@ -48,6 +49,102 @@ export interface BinaryRelease {
   arch: string;
 }
 
+export interface HostInfo {
+  os: string;
+  osLabel: string;
+  arch: string;
+  archLabel: string;
+  dockerSource: string;
+  podmanSource: string;
+  appVersion: string;
+  installDir: string;
+}
+
+export interface EngineInfo {
+  runtime: RuntimeName;
+  serverVersion: string;
+  ncpu: number;
+  memTotal: number;
+  osType: string;
+  architecture: string;
+  operatingSystem: string;
+  storageDriver: string;
+  cgroupVersion: string;
+  rootless: boolean;
+  containersRunning: number;
+  images: number;
+}
+
+export interface DfRow {
+  kind: 'images' | 'containers' | 'volumes' | 'build_cache' | 'other';
+  total: number;
+  active: number;
+  sizeBytes: number;
+  reclaimableBytes: number;
+}
+
+export interface VolumeUsage {
+  name: string;
+  links: number;
+  sizeBytes: number;
+}
+
+export interface ImageLayer {
+  id: string;
+  createdBy: string;
+  sizeBytes: number;
+  created: string;
+}
+
+export interface MountInfo {
+  kind: string;
+  source: string;
+  destination: string;
+  rw: boolean;
+  name: string;
+}
+
+export interface ContainerDetail {
+  rt: RuntimeName;
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  mounts: MountInfo[];
+  networks: { network: string; ip: string }[];
+}
+
+export interface DownloadEntry {
+  runtime: RuntimeName;
+  version: string;
+  path: string;
+  status: 'installed' | 'failed';
+  message: string;
+  at: number;
+}
+
+export interface RegistryLogin {
+  registry: string;
+  runtime: RuntimeName;
+  file: string;
+}
+
+export interface EngineResources {
+  runtime: RuntimeName;
+  cpus: number;
+  memoryMb: number;
+  diskGb: number;
+  editable: boolean;
+  source: string;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  url: string;
+  updateAvailable: boolean;
+}
+
 export interface RunContainerConfig {
   image: string;
   name?: string;
@@ -78,7 +175,7 @@ export interface NewBuildConfig {
   pushOnSuccess: boolean;
 }
 
-function runtimesFor(filter: RuntimeFilter): RuntimeName[] {
+export function runtimesFor(filter: RuntimeFilter): RuntimeName[] {
   return filter === 'all' ? ['docker', 'podman'] : [filter];
 }
 
@@ -136,6 +233,43 @@ export const RuntimeCommands = {
     invoke<SetupStatus>('get_setup_status', { runtime }),
   removeBinary: (runtime: RuntimeName) =>
     invoke<void>('remove_binary', { runtime }),
+  setStartOnLogin: (enabled: boolean) =>
+    invoke<void>('set_start_on_login', { enabled }),
+  getStartOnLogin: () => invoke<boolean>('get_start_on_login'),
+};
+
+// ─── Host + engine facts ─────────────────────────────────────────────────────
+
+export const HostCommands = {
+  info: () => invoke<HostInfo>('get_host_info'),
+  engineInfo: (rt: RuntimeName) => invoke<EngineInfo>('get_engine_info', { runtime: rt }),
+  systemDf: (rt: RuntimeName) => invoke<DfRow[]>('system_df', { runtime: rt }),
+  volumeUsage: (rt: RuntimeName) =>
+    invoke<VolumeUsage[]>('volume_usage', { runtime: rt }),
+  imageHistory: (rt: RuntimeName, id: string) =>
+    invoke<ImageLayer[]>('image_history', { runtime: rt, id }),
+  containerDetails: async (filter: RuntimeFilter): Promise<ContainerDetail[]> =>
+    fanOut(filter, async (rt) => {
+      const rows = await invoke<Omit<ContainerDetail, 'rt'>[]>('list_container_details', {
+        runtime: rt,
+      });
+      return rows.map((r) => ({ ...r, rt }));
+    }),
+  downloads: () => invoke<DownloadEntry[]>('list_downloads'),
+  registryLogins: () => invoke<RegistryLogin[]>('list_registry_logins'),
+  registryLogin: (rt: RuntimeName, registry: string, username: string, password: string) =>
+    invoke<void>('registry_login', { runtime: rt, registry, username, password }),
+  registryLogout: (rt: RuntimeName, registry: string) =>
+    invoke<void>('registry_logout', { runtime: rt, registry }),
+  engineResources: (rt: RuntimeName) =>
+    invoke<EngineResources>('get_engine_resources', { runtime: rt }),
+  setMachineResources: (cpus: number, memoryMb: number, diskGb: number) =>
+    invoke<void>('set_machine_resources', { cpus, memoryMb, diskGb }),
+  checkForUpdate: () => invoke<UpdateInfo>('check_for_update'),
+  writeTextFile: (path: string, content: string) =>
+    invoke<void>('write_text_file', { path, content }),
+  pickDirectory: () => invoke<string | null>('pick_directory'),
+  pickFile: () => invoke<string | null>('pick_file'),
 };
 
 // ─── Containers ──────────────────────────────────────────────────────────────
@@ -173,22 +307,12 @@ export const ContainerCommands = {
     invoke<void>('update_container', { runtime: rt, id, memory, memorySwap, cpus }),
   inspect: (rt: RuntimeName, id: string) =>
     invoke<unknown>('inspect_container', { runtime: rt, id }),
-  /** Snapshot of cpu/mem for running containers, keyed by id and by name. */
-  statsMap: async (
-    filter: RuntimeFilter,
-  ): Promise<Map<string, { cpu: number; mem: number }>> => {
-    const stats = await fanOut(filter, async (rt) => {
+  /** One `stats --no-stream` row per running container. */
+  stats: (filter: RuntimeFilter): Promise<(ContainerStat & { rt: RuntimeName })[]> =>
+    fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_container_stats', { runtime: rt });
-      return raw.map(parseStat);
-    });
-    const map = new Map<string, { cpu: number; mem: number }>();
-    for (const s of stats) {
-      const v = { cpu: s.cpu, mem: s.mem };
-      if (s.id) map.set(s.id, v);
-      if (s.name) map.set(s.name, v);
-    }
-    return map;
-  },
+      return raw.map((r) => ({ ...parseStat(r), rt }));
+    }),
   startLogs: (rt: RuntimeName, id: string, tail = 200) =>
     invoke<void>('get_container_logs', { runtime: rt, id, tail, timestamps: false }),
   stopLogs: (id: string) => invoke<void>('stop_container_logs', { id }),
@@ -290,6 +414,8 @@ export const BuildCommands = {
   cancel: (id: string) => invoke<void>('cancel_build', { id }),
   remove: (id: string) => invoke<void>('delete_build', { id }),
   readDockerfile: (path: string) => invoke<string>('read_dockerfile', { path }),
+  saveDockerfile: (id: string, content: string) =>
+    invoke<void>('save_build_dockerfile', { id, content }),
   clearHistory: () => invoke<void>('clear_build_history'),
 };
 

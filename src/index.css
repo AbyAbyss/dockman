@@ -2241,3 +2241,94 @@
 }
 .exec-prompt { color: var(--accent); font-size: 13px; }
 .exec-input .ti { flex: 1; }
+
+
+/* ─── Error banner (App) ───────────────────────────────────────────────────── */
+.app-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--bad);
+  background: rgba(224, 122, 95, 0.08);
+  border: 0.5px solid rgba(224, 122, 95, 0.3);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Desktop gate / website landing ───────────────────────────────────────── */
+.gate {
+  --g-bg: #0f1013;
+  --g-surface: #16181d;
+  --g-text: #ecebe6;
+  --g-dim: #8b8f98;
+  --g-line: rgba(255, 255, 255, 0.08);
+  --g-accent: #a78bfa;
+  min-height: 100vh;
+  background: var(--g-bg);
+  color: var(--g-text);
+  font-family: 'Geist', system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+.gate-card {
+  width: 100%;
+  max-width: 640px;
+  background: var(--g-surface);
+  border: 0.5px solid var(--g-line);
+  border-radius: 20px;
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.gate-brand { display: flex; align-items: center; gap: 12px; }
+.gate-mark {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(167, 139, 250, 0.16); color: var(--g-accent);
+}
+.gate-title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.gate-sub { font-size: 13px; color: var(--g-dim); }
+.gate p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--g-text); }
+.gate-dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.gate-dl a {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px;
+  border-radius: 12px; border: 0.5px solid var(--g-line); background: var(--g-bg);
+  color: var(--g-text); text-decoration: none; font-size: 13px; font-weight: 600;
+}
+.gate-dl a:hover { border-color: var(--g-accent); }
+.gate-dl a span { font-weight: 400; color: var(--g-dim); font-size: 11.5px; font-family: 'Geist Mono', ui-monospace, monospace; }
+.gate-foot { font-size: 12px; color: var(--g-dim); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.gate-foot a { color: var(--g-accent); text-decoration: none; }
+.gate-foot a:hover { text-decoration: underline; }
+.gate-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.gate-features div { font-size: 12.5px; color: var(--g-dim); padding: 8px 10px; border-radius: 10px; background: var(--g-bg); }
+.gate-features b { color: var(--g-text); font-weight: 600; display: block; margin-bottom: 2px; }
+
+/* ─── Small additions used by the live pages ───────────────────────────────── */
+.fact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.fact { padding: 9px 11px; border-radius: 10px; background: var(--bg); border: 0.5px solid var(--line); min-width: 0; }
+.fact-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 3px; }
+.fact-v { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.login-form { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; margin-top: 8px; }
+@media (max-width: 720px) { .login-form { grid-template-columns: 1fr; } }
+.storage-rows { display: flex; flex-direction: column; gap: 6px; }
+.storage-rows .storage-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: 12px; }
+.storage-rows .storage-row .mono { color: var(--dim); font-size: 11px; }
+.ip-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* Indeterminate progress — used where the CLI reports no percentage. */
+.pull-fill.is-indeterminate {
+  width: 35%;
+  animation: pull-slide 1.1s ease-in-out infinite alternate;
+}
+@keyframes pull-slide {
+  from { margin-left: 0; }
+  to { margin-left: 65%; }
+}

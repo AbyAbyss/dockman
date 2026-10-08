@@ -1,5 +1,5 @@
 // Domain types for Dockman. Entity shapes mirror what the Docker / Podman
-// CLIs return once normalised; the seed data in src/data/seed.ts conforms here.
+// CLIs return once normalised.
 
 export type RuntimeName = 'docker' | 'podman';
 
@@ -7,6 +7,12 @@ export type RuntimeName = 'docker' | 'podman';
 export type RuntimeFilter = 'all' | RuntimeName;
 
 export type ContainerStatus = 'running' | 'paused' | 'stopped';
+
+export interface PortMapping {
+  host: string;
+  container: string;
+  protocol: string;
+}
 
 export interface Container {
   id: string;
@@ -16,7 +22,10 @@ export interface Container {
   status: ContainerStatus;
   cpu: number;
   mem: number;
+  /** Short summary, e.g. "8080:80, 8443:443". */
   port: string;
+  ports: PortMapping[];
+  networks: string[];
   uptime: string;
   tag: string;
   stack: string;
@@ -28,20 +37,20 @@ export interface ImageItem {
   name: string;
   tag: string;
   size: string;
+  sizeBytes: number;
   built: string;
-  used: boolean;
-  layers: number;
-  pulls: number;
 }
 
 export interface Volume {
   name: string;
   rt: RuntimeName;
+  /** Formatted size when the runtime reports one, otherwise "—". */
   size: string;
-  used: number;
+  sizeBytes: number;
   mount: string;
   driver: string;
-  attached: string;
+  /** Names of containers mounting this volume. */
+  attachedTo: string[];
   created: string;
 }
 
@@ -52,14 +61,28 @@ export interface Network {
   scope: string;
   subnet: string;
   gateway: string;
+  /** Containers attached, from the container inventory. */
   attached: number;
-  ext: boolean;
+  internal: boolean;
 }
 
-export type ActivityKind = 'start' | 'stop' | 'pull' | 'build' | 'prune' | 'fallback';
+export type ActivityKind =
+  | 'start'
+  | 'stop'
+  | 'pause'
+  | 'restart'
+  | 'remove'
+  | 'run'
+  | 'pull'
+  | 'build'
+  | 'prune'
+  | 'fallback'
+  | 'install'
+  | 'error';
 
 export interface ActivityEntry {
-  t: string;
+  /** Unix milliseconds. */
+  at: number;
   rt: RuntimeName;
   kind: ActivityKind;
   target: string;
@@ -76,29 +99,6 @@ export interface RuntimeMeta {
   running: boolean;
   accent: string;
   soft: string;
-  latest: string;
-}
-
-export interface BinaryVersion {
-  v: string;
-  size: string;
-  released: string;
-  tag: string;
-  recommended?: boolean;
-}
-
-export interface BinaryManifest {
-  platform: string;
-  source: string;
-  versions: BinaryVersion[];
-}
-
-export interface DownloadHistoryEntry {
-  rt: RuntimeName;
-  v: string;
-  when: string;
-  status: string;
-  path: string;
 }
 
 // ─── Builds ──────────────────────────────────────────────────────────────────
@@ -125,17 +125,10 @@ export interface BuildRecord {
   layerCount: number;
   dockerfile: string;
   layers: BuildLayer[];
-}
-
-export interface CacheImage {
-  name: string;
-  layers: number;
-}
-
-export interface LayerCacheInfo {
-  totalSize: string;
-  cachedLayers: number;
-  images: CacheImage[];
+  createdAt: number;
+  dockerfilePath: string;
+  contextPath: string;
+  error: string;
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
@@ -143,7 +136,6 @@ export interface LayerCacheInfo {
 export type PaletteName = 'ink' | 'paper' | 'slate';
 export type AccentName = 'violet' | 'olive' | 'terracotta' | 'cobalt';
 export type TabPosition = 'top' | 'left';
-
 export type TabKey =
   | 'overview'
   | 'containers'

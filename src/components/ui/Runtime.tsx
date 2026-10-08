@@ -1,4 +1,4 @@
-import { RUNTIMES } from '@/data/seed';
+import { RUNTIME_BRAND } from '@/data/runtimes';
 import type { RuntimeFilter, RuntimeName } from '@/types';
 
 interface RuntimeBadgeProps {
@@ -9,7 +9,7 @@ interface RuntimeBadgeProps {
 
 /** Small colored chip identifying a Docker / Podman entity. */
 export function RuntimeBadge({ rt, size = 'sm', showLabel = true }: RuntimeBadgeProps) {
-  const meta = RUNTIMES[rt];
+  const meta = RUNTIME_BRAND[rt];
   if (!meta) return null;
   return (
     <span className={`rt-badge rt-${rt} sz-${size}`}>
@@ -41,7 +41,7 @@ export function RuntimeSwitcher({ active, setActive }: RuntimeSwitcherProps) {
           onClick={() => setActive(o.k)}
         >
           {o.k !== 'all' && (
-            <span className="rt-dot" style={{ background: RUNTIMES[o.k].accent }} />
+            <span className="rt-dot" style={{ background: RUNTIME_BRAND[o.k].accent }} />
           )}
           {o.l}
         </button>

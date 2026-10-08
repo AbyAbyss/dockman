@@ -9,16 +9,17 @@ import { useAppStore } from '@/store/appStore';
 import { ACCENTS, PALETTES, useThemeStore } from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
 import { SetupWizard } from '@/components/wizard/SetupWizard';
-import { RUNTIMES } from '@/data/seed';
+import { RUNTIME_BRAND } from '@/data/runtimes';
+import { Glyph } from '@/components/ui/Icon';
 
 /** Application shell: theme tokens, top bar, tab navigation and the routed
  *  page outlet. */
 export default function App() {
   const theme = useThemeStore();
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
-  const live = useAppStore((s) => s.live);
   const refresh = useAppStore((s) => s.refresh);
-  const driftCpu = useAppStore((s) => s.driftCpu);
+  const error = useAppStore((s) => s.error);
+  const clearError = useAppStore((s) => s.clearError);
   const counts = useCounts();
   const wizardCompleted = useWizardStore((s) => s.completed);
   const location = useLocation();
@@ -36,17 +37,12 @@ export default function App() {
       : `color-mix(in oklab, ${c} ${100 - translucency}%, transparent)`;
   const winBg = mix(pal.bg);
 
-  // Live mode: poll the real container inventory. Seed mode: gentle CPU drift
-  // so the prototype UI still feels alive.
+  // Poll the container inventory and stats every 5 seconds.
   useEffect(() => {
-    if (live) {
-      refresh();
-      const id = setInterval(refresh, 5000);
-      return () => clearInterval(id);
-    }
-    const id = setInterval(driftCpu, 2000);
+    refresh();
+    const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
-  }, [live, refresh, driftCpu]);
+  }, [refresh]);
 
   // Honour the "default tab" preference once, on first load.
   const redirected = useRef(false);
@@ -80,10 +76,10 @@ export default function App() {
     '--tint': pal.tint,
     '--accent': acc.hex,
     '--accent-soft': acc.soft,
-    '--rt-docker': RUNTIMES.docker.accent,
-    '--rt-docker-soft': RUNTIMES.docker.soft,
-    '--rt-podman': RUNTIMES.podman.accent,
-    '--rt-podman-soft': RUNTIMES.podman.soft,
+    '--rt-docker': RUNTIME_BRAND.docker.accent,
+    '--rt-docker-soft': RUNTIME_BRAND.docker.soft,
+    '--rt-podman': RUNTIME_BRAND.podman.accent,
+    '--rt-podman-soft': RUNTIME_BRAND.podman.soft,
     '--ok': acc.hex,
     '--warn': '#e0b265',
     '--bad': '#e07a5f',
@@ -103,6 +99,14 @@ export default function App() {
       style={rootStyle as CSSProperties}
     >
       <TopBar />
+      {error && (
+        <div className="app-error mono" role="alert">
+          <span>{error}</span>
+          <button type="button" className="iconbtn" aria-label="Dismiss" onClick={clearError}>
+            <Glyph name="close" size={12} />
+          </button>
+        </div>
+      )}
       <div className="layout-body">
         <TabBar
           counts={counts}
