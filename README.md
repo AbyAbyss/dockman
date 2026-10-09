@@ -96,7 +96,7 @@ sudo apt install ./Dockman_*.deb
 
 ## 🌐 Website
 
-[abyabyss.github.io/dockman](https://abyabyss.github.io/dockman) is built by [`.github/workflows/pages.yml`](.github/workflows/pages.yml) from the same code as the app. In a browser Dockman has no engine to talk to, so the site shows a landing page with the download links. For it to publish, **Settings → Pages → Source** must be set to **GitHub Actions**.
+[abyabyss.github.io/dockman](https://abyabyss.github.io/dockman) is the static page in [`site/`](site/), published by [`.github/workflows/pages.yml`](.github/workflows/pages.yml) whenever `site/` changes on `main`. For it to publish, **Settings → Pages → Source** must be set to **GitHub Actions**.
 
 <a id="screenshots"></a>
 
@@ -137,11 +137,11 @@ sudo apt install ./Dockman_*.deb
 **Run in development mode**
 
 ```bash
-npm install
-npm run tauri dev
+make deps
+make dev
 ```
 
-`npm run dev` on its own serves the website landing page only; the app needs the Tauri shell to reach Docker and Podman.
+`npm run dev` on its own only shows a "download the desktop app" page; the app needs the Tauri shell to reach Docker and Podman.
 
 ## 🏗️ Build from source
 
@@ -150,11 +150,12 @@ Install the prerequisites listed under Development (Node.js 20+, Rust stable, Ta
 ```bash
 git clone https://github.com/AbyAbyss/dockman.git
 cd dockman
-npm install
-npm run tauri build
+make install
 ```
 
-The installer for your platform is written to `src-tauri/target/release/bundle/`.
+`make install` builds the installer for your OS and installs it: `/Applications/Dockman.app` on macOS, the `.deb` (or `.rpm`) on Linux, the setup `.exe` on Windows (run `make` from Git Bash). `make uninstall` removes it again.
+
+To only build, run `make build`; the installers are written to `src-tauri/target/release/bundle/`. `make help` lists every target.
 
 <a id="releasing"></a>
 

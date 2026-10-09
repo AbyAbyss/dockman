@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dockman · The Shipping Manifest</title>
+<meta name="description" content="Dockman is a native desktop app (Tauri 2, Rust, React) that manages Docker and Podman side by side: containers, images, volumes, networks, builds and CLI binaries. macOS, Windows, Linux. MIT licensed, no account." />
+<meta name="theme-color" content="#10233d" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23dc6e52'/%3E%3Cg transform='translate(14 14) scale(1.5)' fill='none' stroke='%2310233d' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,800;0,9..144,900;1,9..144,500;1,9..144,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Special+Elite&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #efe4cc;
+    --paper2: #f8f0dd;
+    --manila: #e4d0a0;
+    --kraft: #c9a56d;
+    --kraft-d: #a8834a;
+    --ink: #14243d;
+    --blot: #10233d;
+    --blot2: #0b182b;
+    --muted: #574f3c;
+    --coral: #dc6e52;
+    --coral-d: #b2432b;
+    --docker: #2496ed;
+    --docker-d: #0f68b0;
+    --podman: #892ca0;
+    --podman-l: #c88ae0;
+    --green: #1f6b55;
+    --serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --type: "Special Elite", "American Typewriter", "Courier New", ui-monospace, monospace;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --hand: "Caveat", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .27 0 0 0 0 .14 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --grain-l: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .9 0 0 0 0 .85 0 0 0 0 .7 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+  body { background: var(--paper) var(--grain); color: var(--ink); font: 400 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--coral-d); outline-offset: 3px; border-radius: 4px; }
+  .blot :focus-visible, footer :focus-visible { outline-color: var(--coral); }
+  .wrap { width: min(1240px, 100% - 32px); margin-inline: auto; }
+  .skip { position: absolute; left: 16px; top: -70px; background: var(--ink); color: var(--paper); padding: 10px 14px; z-index: 300; font-family: var(--mono); }
+  .skip:focus { top: 10px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* type system */
+  .kicker { font: 600 12px/1.3 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--coral-d); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .kicker b { background: var(--ink); color: var(--paper); padding: 3px 8px; letter-spacing: .1em; font-weight: 600; }
+  .blot .kicker { color: var(--coral); } .blot .kicker b { background: var(--paper); color: var(--ink); }
+  h1, h2, h3, h4 { font-family: var(--serif); font-variation-settings: "opsz" 144; }
+  h2 { font-weight: 800; font-size: clamp(2.1rem, 5vw, 4rem); line-height: 1.02; letter-spacing: -.02em; margin: 14px 0 0; max-width: 16em; text-wrap: balance; }
+  h2 em, h1 em { font-style: italic; color: var(--coral-d); font-weight: 800; }
+  .blot h2 em { color: var(--coral); }
+  h3 { font-weight: 800; font-size: 1.5rem; line-height: 1.1; letter-spacing: -.01em; }
+  .lede { font-size: clamp(1.05rem, 1.5vw, 1.25rem); color: var(--muted); max-width: 36em; }
+  .hand { font-family: var(--hand); font-weight: 700; color: var(--coral-d); line-height: 1.05; }
+  .mono { font-family: var(--mono); }
+  code, .ic { font: 400 .88em var(--mono); background: rgba(20,36,61,.09); padding: 1px 6px; border-radius: 3px; }
+  section { position: relative; padding: 110px 0; }
+  .sechead { margin-bottom: 52px; }
+  .sechead p { color: var(--muted); max-width: 40em; margin-top: 16px; font-size: 1.08rem; }
+  .blot .sechead p { color: #b9c5d8; }
+
+  /* blotter (navy) sections */
+  .blot { background: var(--blot) var(--grain-l); color: #e8e1cf; }
+  .blot::before, .blot::after { content: ""; position: absolute; left: 0; right: 0; height: 14px; z-index: 2; pointer-events: none; }
+  .blot::before { top: -13px; background: radial-gradient(circle at 10px 14px, var(--blot) 7px, transparent 7.6px) 0 0 / 20px 14px repeat-x; }
+  .blot::after { bottom: -13px; background: radial-gradient(circle at 10px 0, var(--blot) 7px, transparent 7.6px) 0 0 / 20px 14px repeat-x; }
+
+  /* props */
+  .tape { position: absolute; width: 96px; height: 28px; background: rgba(238,214,146,.82); box-shadow: 0 1px 3px rgba(0,0,0,.2); transform: rotate(var(--tr, -4deg)); z-index: 3; clip-path: polygon(3% 0,97% 0,100% 12%,97% 25%,100% 38%,97% 50%,100% 62%,97% 75%,100% 88%,97% 100%,3% 100%,0 88%,3% 75%,0 62%,3% 50%,0 38%,3% 25%,0 12%); pointer-events: none; }
+  .tape.t1 { top: -14px; left: 12%; } .tape.t2 { top: -14px; right: 12%; --tr: 5deg; }
+  .print { background: #fbf6e8; padding: 10px 10px 14px; box-shadow: 0 1px 1px rgba(0,0,0,.2), 0 18px 30px -14px rgba(10,20,40,.55); transform: rotate(var(--r, 0deg)); position: relative; }
+  .print img { width: 100%; height: auto; border: 1px solid rgba(20,36,61,.35); background: #0d0c0a; }
+  .print figcaption, .print .cap { font-family: var(--hand); font-size: 25px; line-height: 1.1; color: var(--ink); padding: 10px 6px 0; }
+  .stamp { display: inline-block; font: 400 clamp(15px, 2vw, 22px)/1 var(--type); letter-spacing: .14em; text-transform: uppercase; color: var(--ink); border: 3px double currentColor; padding: 8px 12px 6px; transform: rotate(var(--sr, -6deg)); mix-blend-mode: multiply; opacity: .88; white-space: nowrap; }
+  .stamp.coral { color: var(--coral-d); } .stamp.green { color: var(--green); } .stamp.blue { color: var(--docker-d); }
+  .plate { display: inline-grid; grid-template-columns: auto auto; gap: 0 14px; align-items: end; font: 600 15px/1 var(--mono); letter-spacing: .12em; color: #f1ead6; background: #1b2f4b; border: 2px solid #e8dfc4; padding: 8px 12px; border-radius: 3px; box-shadow: 0 0 0 3px #1b2f4b; }
+  .plate small { font-size: 10px; letter-spacing: .08em; opacity: .75; grid-column: 2; text-align: right; }
+  .plate b { font-weight: 600; font-size: 17px; letter-spacing: .16em; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 24px; border: 2px solid var(--ink); font: 400 16px/1 var(--type); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; cursor: pointer; background: var(--paper2); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); transition: transform .15s, box-shadow .15s, background .2s; }
+  .btn:hover { transform: translate(-2px,-2px); box-shadow: 6px 6px 0 var(--ink); }
+  .btn:active { transform: translate(3px,3px); box-shadow: 1px 1px 0 var(--ink); }
+  .btn.primary { background: var(--coral); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .blot .btn { box-shadow: 4px 4px 0 var(--coral); border-color: var(--paper); }
+  .blot .btn:hover { box-shadow: 6px 6px 0 var(--coral); }
+
+  /* header */
+  .top { position: sticky; top: 0; z-index: 100; background: rgba(239,228,204,.94); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 3px double var(--ink); }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 56px; gap: 14px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font: 900 21px/1 var(--serif); letter-spacing: -.02em; min-height: 44px; }
+  .brand i { width: 28px; height: 28px; background: var(--coral); border: 2px solid var(--ink); display: grid; place-items: center; }
+  .brand svg { width: 16px; height: 16px; }
+  .top nav { display: flex; align-items: center; gap: 2px; }
+  .top nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 11px; font: 400 14px/1 var(--type); letter-spacing: .05em; text-transform: uppercase; text-decoration: none; position: relative; }
+  .top nav a::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: 9px; height: 2px; background: var(--coral); transform: scaleX(0); transform-origin: left; transition: transform .25s; }
+  .top nav a:hover::after { transform: scaleX(1); }
+  .top nav a.gh { border: 2px solid var(--ink); margin-left: 8px; background: var(--paper2); }
+  .top nav a.gh::after { display: none; }
+
+  /* hero */
+  .hero { padding: 0 0 70px; overflow: hidden; }
+  .issue { border-bottom: 1px solid var(--ink); font: 400 12.5px/1.4 var(--type); letter-spacing: .1em; text-transform: uppercase; }
+  .issue .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 24px; padding: 9px 0; }
+  .nameplate { text-align: center; border-bottom: 5px double var(--ink); padding: 18px 0 8px; position: relative; }
+  .nameplate .np { font: 900 clamp(4.2rem, 17.5vw, 15rem)/.8 var(--serif); font-variation-settings: "opsz" 144, "SOFT" 0; letter-spacing: -.045em; color: var(--ink); display: block; padding-bottom: .07em; }
+  .nameplate .np span { color: var(--coral); }
+  .nameplate .sub { font: 400 13px/1.3 var(--type); letter-spacing: .22em; text-transform: uppercase; margin-top: 6px; }
+  .np-side { position: absolute; top: 24px; font: 400 12px/1.4 var(--type); letter-spacing: .1em; text-transform: uppercase; text-align: left; }
+  .np-side.l { left: 0; } .np-side.r { right: 0; text-align: right; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 56px; padding-top: 52px; align-items: start; }
+  h1 { font-weight: 800; font-size: clamp(2.5rem, 5.6vw, 5rem); line-height: .98; letter-spacing: -.03em; text-wrap: balance; }
+  .hero .lede { margin-top: 24px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 32px; }
+  .hero-note { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }
+  .hero-note .hand { font-size: 26px; transform: rotate(-2deg); }
+  .hero-fig { position: relative; padding: 18px 0 0 18px; }
+  .hero-fig .print { --r: 2.2deg; }
+  .hero-fig .stamp { position: absolute; right: -6px; bottom: 54px; z-index: 4; background: rgba(239,228,204,.55); font-size: 19px; }
+  .hero-fig .plate { position: absolute; left: -2px; top: -6px; z-index: 4; transform: rotate(-4deg); }
+  .route { position: relative; height: 54px; margin-top: 54px; }
+  .route svg.line { position: absolute; left: 0; right: 0; top: 24px; width: 100%; height: 6px; overflow: visible; }
+  .ship { position: absolute; left: 0; top: 0; width: 56px; height: 40px; animation: sail 38s linear infinite; }
+  @keyframes sail { from { transform: translateX(-60px); } to { transform: translateX(100vw); } }
+  .route .port { position: absolute; top: 8px; font: 400 12px/1 var(--type); letter-spacing: .12em; text-transform: uppercase; background: var(--paper); padding: 0 8px; }
+  .route .port.a { left: 0; } .route .port.b { right: 0; }
+
+  /* story */
+  .story-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 0 40px; }
+  .story .col1 { grid-column: 1 / span 5; } .story .col2 { grid-column: 6 / span 4; } .story .col3 { grid-column: 10 / span 3; }
+  .story p { margin-bottom: 1.1em; text-align: left; hyphens: auto; }
+  .dropcap::first-letter { font: 900 5.4em/.78 var(--serif); float: left; padding: .06em .1em 0 0; color: var(--coral-d); }
+  .pull { font: 800 italic clamp(1.5rem, 2.4vw, 2.1rem)/1.15 var(--serif); letter-spacing: -.01em; border-top: 4px solid var(--ink); border-bottom: 1px solid var(--ink); padding: 18px 0 16px; margin: 6px 0 24px; position: relative; text-wrap: balance; }
+  .pull cite { display: block; margin-top: 12px; font: 400 12px/1.3 var(--type); font-style: normal; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .marginal { font: 700 26px/1.05 var(--hand); color: var(--coral-d); transform: rotate(-3deg); margin: 6px 0 22px; }
+  .foot { border-top: 1px solid var(--ink); margin-top: 48px; padding-top: 14px; font: 400 13px/1.55 var(--type); color: var(--muted); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; }
+  .foot p { margin-bottom: .4em; }
+  .facts { list-style: none; font: 400 14px/1.35 var(--type); letter-spacing: .04em; border-top: 2px solid var(--ink); }
+  .facts li { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px dotted var(--ink); padding: 9px 0; }
+  .facts b { font-weight: 400; color: var(--coral-d); text-align: right; }
+
+  /* DOCK BOARD */
+  .board-sec { padding: 96px 0 104px; }
+  .board { margin-top: 8px; background: var(--paper2); background-image: repeating-linear-gradient(transparent 0 33px, rgba(20,36,61,.07) 33px 34px), var(--grain); color: var(--ink); padding: 26px 26px 22px; position: relative; box-shadow: 0 30px 60px -20px rgba(0,0,0,.6); }
+  .board-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px 24px; border-bottom: 3px double var(--ink); padding-bottom: 14px; margin-bottom: 18px; }
+  .board-head h3 { font-size: 1.7rem; }
+  .simtag { font: 400 12.5px/1.35 var(--type); letter-spacing: .08em; text-transform: uppercase; display: flex; gap: 12px; align-items: center; max-width: 36em; }
+  .simtag .stamp { font-size: 14px; padding: 6px 9px 4px; flex: none; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; margin-bottom: 20px; }
+  .seg { display: inline-grid; grid-auto-flow: column; border: 2px solid var(--ink); background: var(--paper); }
+  .seg button { min-height: 44px; padding: 0 18px; border: 0; background: transparent; cursor: pointer; font: 400 15px/1 var(--type); letter-spacing: .06em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; border-right: 2px solid var(--ink); }
+  .seg button:last-child { border-right: 0; }
+  .seg i { width: 10px; height: 10px; background: var(--c); border: 1.5px solid var(--ink); border-radius: 50%; }
+  .seg button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
+  .ctl-lbl { font: 400 12px/1 var(--type); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-right: -8px; }
+  .quays { display: grid; grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr); gap: 0; align-items: stretch; }
+  .quay { position: relative; border: 2px solid var(--ink); background: var(--manila); display: flex; flex-direction: column; transition: opacity .35s, filter .35s, box-shadow .2s; min-width: 0; }
+  .quay.over { box-shadow: 0 0 0 4px var(--c), 6px 6px 0 var(--ink); }
+  .quay-top { background: var(--c); color: #fff; padding: 10px 16px 9px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border-bottom: 2px solid var(--ink); }
+  .quay-top h4 { font: 900 1.7rem/1 var(--serif); letter-spacing: .02em; text-transform: uppercase; }
+  .quay-top span { font: 400 11.5px/1.2 var(--type); letter-spacing: .1em; text-transform: uppercase; opacity: .95; text-align: right; }
+  .quay[data-rt="docker"] { --c: var(--docker-d); --cl: var(--docker); }
+  .quay[data-rt="podman"] { --c: var(--podman); --cl: var(--podman-l); }
+  .berth { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 14px 12px; padding: 20px 14px 16px; min-height: 238px; background: repeating-linear-gradient(0deg, rgba(120,84,30,.1) 0 2px, transparent 2px 36px); position: relative; }
+  .berth:empty::after { content: "Empty berth. Drag a crate here or run one."; font: 700 24px/1.1 var(--hand); color: var(--muted); align-self: center; margin: 0 auto; }
+  .water { height: 34px; background: var(--blot); position: relative; overflow: hidden; border-top: 2px solid var(--ink); }
+  .water::before { content: ""; position: absolute; left: -40px; right: -40px; top: 9px; bottom: 0; background: radial-gradient(circle at 20px -6px, transparent 12px, rgba(160,190,230,.35) 12.6px, rgba(160,190,230,.35) 14px, transparent 14.6px) 0 0 / 40px 18px repeat-x, radial-gradient(circle at 0 -6px, transparent 12px, rgba(160,190,230,.2) 12.6px, rgba(160,190,230,.2) 14px, transparent 14.6px) 0 14px / 40px 18px repeat-x; animation: waves 6s linear infinite; }
+  @keyframes waves { to { transform: translateX(40px); } }
+  .channel { display: grid; place-items: center; position: relative; }
+  .channel::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 50%; border-left: 3px dotted var(--ink); }
+  .channel span { position: relative; background: var(--paper2); font: 400 11px/1.2 var(--type); letter-spacing: .12em; text-transform: uppercase; writing-mode: vertical-rl; padding: 8px 2px; }
+  .crate { position: relative; width: 148px; height: 92px; border: 2px solid var(--ink); background: repeating-linear-gradient(90deg, rgba(0,0,0,.14) 0 3px, transparent 3px 12px), var(--cl); color: var(--ink); text-align: left; cursor: grab; touch-action: pan-y; padding: 0; transition: opacity .3s, filter .3s, box-shadow .15s, transform .15s; box-shadow: 3px 3px 0 var(--ink); user-select: none; -webkit-user-select: none; }
+  .crate[data-rt="docker"] { --cl: var(--docker); } .crate[data-rt="podman"] { --cl: var(--podman-l); }
+  .crate:hover { transform: translateY(-3px) rotate(var(--rot, 0deg)); box-shadow: 3px 6px 0 var(--ink); }
+  .crate .lbl { position: absolute; left: 9px; right: 9px; top: 12px; bottom: 9px; background: var(--paper2); border: 1px solid var(--ink); padding: 6px 8px 4px; display: flex; flex-direction: column; justify-content: space-between; }
+  .crate .cn { font: 600 14px/1.1 var(--mono); letter-spacing: -.01em; }
+  .crate .ci { font: 400 12px/1.1 var(--mono); color: var(--muted); }
+  .crate .cp { font: 600 12px/1 var(--mono); color: var(--coral-d); display: flex; justify-content: space-between; align-items: center; }
+  .crate .cp em { font: 400 10px/1 var(--type); font-style: normal; background: var(--ink); color: var(--paper); padding: 2px 4px; letter-spacing: .06em; }
+  .crate .grip { position: absolute; right: 2px; top: -1px; width: 30px; height: 18px; touch-action: none; z-index: 2; background: radial-gradient(circle, var(--ink) 1.4px, transparent 1.8px) 0 0 / 6px 6px; opacity: .55; }
+  .crate.dim { opacity: .28; filter: grayscale(.9); }
+  .crate.lifted { opacity: .25; }
+  .crate.ghost { position: fixed; z-index: 400; pointer-events: none; box-shadow: 8px 14px 0 rgba(0,0,0,.35); transform: rotate(4deg) scale(1.04); transition: none; margin: 0; }
+  .crate.landing { animation: land .5s cubic-bezier(.3,1.4,.4,1); }
+  @keyframes land { from { transform: translateY(-40px) rotate(-6deg); opacity: 0; } }
+  .quay.dim { opacity: .5; }
+  .quay.dim .quay-top { filter: saturate(.3); }
+  .board-foot { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 28px; margin-top: 26px; align-items: start; }
+  table.manifest { width: 100%; border-collapse: collapse; font: 400 14px/1.3 var(--type); border: 2px solid var(--ink); background: var(--paper); }
+  .manifest caption { text-align: left; font: 400 12px/1.3 var(--type); letter-spacing: .12em; text-transform: uppercase; padding: 0 0 6px; color: var(--muted); caption-side: top; }
+  .manifest th, .manifest td { padding: 9px 12px; border-bottom: 1px dotted var(--ink); text-align: right; }
+  .manifest thead th { background: var(--ink); color: var(--paper); font-weight: 400; letter-spacing: .08em; text-transform: uppercase; font-size: 12px; border: 0; }
+  .manifest th:first-child { text-align: left; }
+  .manifest tbody th { font-weight: 400; display: flex; gap: 8px; align-items: center; }
+  .manifest th i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--c); display: inline-block; }
+  .manifest tfoot th, .manifest tfoot td { border-top: 3px double var(--ink); border-bottom: 0; font-weight: 400; background: var(--manila); font-size: 15px; }
+  .manifest td { font-variant-numeric: tabular-nums; transition: background .4s; }
+  .manifest td.bump { background: rgba(220,110,82,.45); }
+  .manifest tr.off { opacity: .35; }
+  .log { list-style: none; font: 400 13px/1.4 var(--mono); border: 2px solid var(--ink); background: #f3ead2; padding: 10px 12px; min-height: 148px; position: relative; }
+  .log li { display: flex; gap: 10px; padding: 2px 0; }
+  .log time { color: var(--muted); flex: none; }
+  .log li.bad { color: var(--coral-d); font-weight: 600; } .log li.ok { color: var(--green); font-weight: 600; } .log li.fb { color: var(--docker-d); }
+  .log-lbl { font: 400 12px/1.3 var(--type); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .hint { font: 700 24px/1.1 var(--hand); color: var(--coral-d); margin-top: 18px; }
+  .hint kbd { font: 600 14px/1 var(--mono); border: 1.5px solid var(--ink); border-bottom-width: 3px; padding: 2px 6px; background: var(--paper); color: var(--ink); }
+  .runpanel { background: var(--kraft); border: 2px solid var(--ink); padding: 20px 20px 18px; margin: 0 0 22px; position: relative; display: none; }
+  .runpanel.open { display: block; }
+  .runpanel h4 { font: 800 1.35rem/1 var(--serif); margin-bottom: 4px; }
+  .runpanel .hostline { font: 400 12.5px/1.4 var(--type); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 14px; }
+  .runpanel fieldset { border: 0; margin: 0 0 14px; min-width: 0; }
+  .runpanel legend { font: 400 12px/1 var(--type); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px; padding: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips label { position: relative; }
+  .chips input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; margin: 0; }
+  .chips span { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 2px solid var(--ink); background: var(--paper2); font: 400 13.5px/1.1 var(--mono); gap: 8px; }
+  .chips input:checked + span { background: var(--ink); color: var(--paper); }
+  .chips input:focus-visible + span { outline: 3px solid var(--coral-d); outline-offset: 2px; }
+  .chips em { font: 400 10px/1 var(--type); font-style: normal; background: var(--coral); color: var(--ink); padding: 3px 5px; letter-spacing: .06em; }
+  .runrow { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .runrow .btn { min-height: 46px; padding: 0 18px; font-size: 14px; }
+  .runrow .btn.line { background: transparent; box-shadow: none; }
+  .loadcard { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--paper2); border: 2px solid var(--ink); padding: 8px 12px; display: none; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; z-index: 5; box-shadow: 4px 4px 0 var(--ink); }
+  .loadcard.on { display: grid; }
+  .loadcard svg { width: 96px; height: 56px; overflow: visible; }
+  .loadcard .s { stroke: var(--ink); stroke-width: 3; fill: none; stroke-linecap: square; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .35s ease; }
+  .loadcard .s.on { stroke-dashoffset: 0; }
+  .loadcard .l1 { font: 600 13px/1.2 var(--mono); } .loadcard .l2 { font: 400 11.5px/1.2 var(--type); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+  .loadcard .bar { height: 6px; border: 1.5px solid var(--ink); margin-top: 6px; background: var(--paper); }
+  .loadcard .bar i { display: block; height: 100%; width: 0; background: var(--c); transition: width .3s linear; }
+  .quay .stamp.pop { position: absolute; z-index: 6; left: 50%; top: 44%; font-size: clamp(20px, 3vw, 34px); background: rgba(248,240,221,.8); opacity: 0; transform: translate(-50%, -50%) rotate(var(--sr, -8deg)) scale(2); pointer-events: none; }
+  .quay .stamp.pop.show { animation: thunk .5s cubic-bezier(.2,1.2,.4,1) forwards; }
+  @keyframes thunk { 0% { opacity: 0; transform: translate(-50%,-50%) rotate(var(--sr)) scale(2.2); } 60% { opacity: .95; transform: translate(-50%,-50%) rotate(var(--sr)) scale(.94); } 100% { opacity: .92; transform: translate(-50%,-50%) rotate(var(--sr)) scale(1); } }
+  .noscript { background: var(--coral); border: 2px solid var(--ink); padding: 10px 14px; font: 400 13px/1.4 var(--type); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 16px; }
+  .js .noscript { display: none; }
+  .nojs-only { display: none; }
+  html:not(.js) .controls, html:not(.js) .runpanel { display: none; }
+
+  /* BILL OF LADING SCENE */
+  .scene { padding: 0; background: var(--kraft); background-image: var(--grain), repeating-linear-gradient(90deg, rgba(90,60,20,.06) 0 1px, transparent 1px 7px); }
+  .scene-pin { position: relative; padding: 90px 0 80px; }
+  .bol { background: var(--paper2); border: 2px solid var(--ink); padding: 26px 28px 30px; max-width: 540px; box-shadow: 8px 10px 0 rgba(20,36,61,.35); outline: 1px solid var(--ink); outline-offset: -7px; }
+  .bol h2 { font-size: clamp(1.9rem, 3.4vw, 2.7rem); margin-top: 10px; }
+  .bol .small { font: 400 12.5px/1.4 var(--type); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 10px; }
+  .lines { list-style: none; margin-top: 18px; counter-reset: ln; border-top: 2px solid var(--ink); }
+  .line { border-bottom: 1px dotted var(--ink); }
+  .line > .lb { width: 100%; display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; align-items: center; min-height: 44px; background: transparent; border: 0; cursor: pointer; text-align: left; padding: 0 4px; font: 400 15px/1.1 var(--type); letter-spacing: .08em; text-transform: uppercase; }
+  .line .no { font: 600 12px/1 var(--mono); color: var(--coral-d); }
+  .line .cl { font: 400 11px/1 var(--type); border: 2px solid var(--green); color: var(--green); padding: 4px 5px 2px; letter-spacing: .12em; transform: rotate(-5deg); mix-blend-mode: multiply; }
+  .line.on > .lb { background: var(--ink); color: var(--paper); }
+  .line.on .no { color: var(--coral); } .line.on .cl { color: #8fe0bf; border-color: #8fe0bf; mix-blend-mode: normal; }
+  .line > figure { margin: 22px auto 30px; max-width: 640px; }
+  .line > figure .desc { font: 400 .98rem/1.55 var(--sans); padding: 10px 6px 0; color: var(--muted); }
+  .line > figure .cap { padding-bottom: 0; }
+  .scene.pinned { height: 620vh; }
+  .scene.pinned .scene-pin { position: sticky; top: 56px; height: calc(100vh - 56px); padding: 0; display: flex; align-items: center; overflow: hidden; }
+  .scene.pinned .scene-pin > .wrap { position: relative; }
+  .scene.pinned .line > figure { position: absolute; left: 49%; right: 0; top: 50%; margin: 0; max-width: none; width: auto; opacity: 0; pointer-events: none; transform: translateY(-48%) translate(60px,-40px) rotate(7deg) scale(.92); transition: opacity .45s ease, transform .7s cubic-bezier(.2,.9,.3,1.1); }
+  .scene.pinned .line.on > figure { opacity: 1; transform: translateY(-50%) rotate(var(--r, -1.5deg)); }
+  .scene.pinned .line.past > figure { transform: translateY(-48%) translate(-60px,50px) rotate(-6deg) scale(.94); }
+  .scene.pinned .line > figure .tape { transform: scale(0) rotate(var(--tr)); transition: transform .35s .35s cubic-bezier(.3,1.6,.5,1); }
+  .scene.pinned .line.on > figure .tape { transform: rotate(var(--tr)); }
+  .scene.pinned .line .cl { opacity: 0; transform: rotate(-5deg) scale(2.4); transition: opacity .2s, transform .35s cubic-bezier(.2,1.3,.4,1); }
+  .scene.pinned .line.cleared .cl { opacity: 1; transform: rotate(-5deg) scale(1); }
+  .scene.pinned .line > figure .desc { max-width: 38em; }
+  .scene .bgnote { position: absolute; right: 0; bottom: 10px; z-index: 1; }
+
+  /* CHART (networks) */
+  .chart-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 56px; align-items: center; }
+  .chartbox { position: relative; border: 2px solid var(--paper); padding: 10px; background: #0d1d33; background-image: linear-gradient(rgba(232,225,207,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(232,225,207,.06) 1px, transparent 1px); background-size: 40px 40px; }
+  .chartbox::before { content: "CHART No. 3 · SAMPLE TOPOLOGY"; position: absolute; left: 14px; top: 10px; font: 400 11px/1 var(--type); letter-spacing: .14em; color: #b9c5d8; z-index: 2; }
+  .chartbox svg { width: 100%; height: auto; display: block; }
+  .chartbox text { font-family: var(--mono); fill: #f1ead6; }
+  .rt-path { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: .1 9; }
+  .node-c rect { fill: #17304f; stroke: #e8dfc4; stroke-width: 1.5; }
+  .node-c .n { font-size: 15px; font-weight: 600; } .node-c .i { font-size: 12px; fill: #aebbd0; }
+  .hub circle { fill: #0d1d33; stroke-width: 3; } .hub text { font-size: 17px; font-weight: 600; text-anchor: middle; } .hub .s { font-size: 11px; fill: #aebbd0; font-weight: 400; }
+  .nd { transition: opacity .5s; }
+  .compass { opacity: .5; }
+  .js .chart-grid .rv { transition-delay: 0s; }
+  .stack-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; font: 400 12.5px/1 var(--type); letter-spacing: .08em; text-transform: uppercase; padding: 8px 10px 6px; border: 2px solid currentColor; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c, currentColor); }
+  #chart { overflow-x: clip; }
+  .blot .print { --r: -2deg; margin-top: 32px; }
+  .blot .print figcaption { color: var(--ink); }
+
+  /* LAYERS (builds) */
+  .layers-grid { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 56px; align-items: start; }
+  .waterfall { background: var(--paper2); border: 2px solid var(--ink); padding: 22px 22px 18px; position: relative; box-shadow: 8px 10px 0 rgba(20,36,61,.25); background-image: repeating-linear-gradient(transparent 0 33px, rgba(20,36,61,.06) 33px 34px); }
+  .wf-head { display: flex; justify-content: space-between; font: 400 12px/1.3 var(--type); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); border-bottom: 3px double var(--ink); padding-bottom: 8px; margin-bottom: 14px; gap: 10px; }
+  .wf { display: flex; flex-direction: column-reverse; gap: 7px; position: relative; }
+  .wrow { --k: 1; opacity: var(--k); transform: translateY(calc((1 - var(--k)) * -170px)); }
+  .wrow .nm { display: flex; justify-content: space-between; font: 400 12.5px/1.2 var(--mono); margin-bottom: 3px; gap: 8px; }
+  .wrow .nm span:last-child { color: var(--muted); flex: none; }
+  .track { position: relative; height: 22px; border-left: 1px solid var(--ink); background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(20,36,61,.12) calc(10% - 1px) 10%); }
+  .cargo { position: absolute; top: 1px; bottom: 1px; left: var(--s); width: var(--w); min-width: 6px; background: repeating-linear-gradient(90deg, rgba(0,0,0,.2) 0 2px, transparent 2px 7px), var(--coral); border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+  .cargo.cached { background: repeating-linear-gradient(135deg, rgba(20,36,61,.18) 0 3px, transparent 3px 8px), var(--manila); }
+  .wrow.thud { animation: thud .35s; }
+  @keyframes thud { 40% { transform: translateY(4px) scaleY(.94); } }
+  .wf-axis { display: flex; justify-content: space-between; font: 400 11px/1 var(--type); letter-spacing: .06em; border-top: 1px solid var(--ink); margin-top: 10px; padding-top: 6px; }
+  .wf-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; font: 400 12px/1.2 var(--type); letter-spacing: .08em; text-transform: uppercase; }
+  .wf-legend i { display: inline-block; width: 22px; height: 12px; border: 2px solid var(--ink); vertical-align: -2px; margin-right: 6px; background: var(--coral); }
+  .wf-legend i.c { background: var(--manila); }
+
+  /* PRINTS (pinboard) */
+  .pinboard { background: var(--kraft) var(--grain); border: 10px solid #7b5a2d; box-shadow: inset 0 0 40px rgba(60,35,10,.35), 0 20px 40px -18px rgba(20,36,61,.5); padding: 54px 36px 56px; columns: 3; column-gap: 34px; }
+  .pinboard figure { break-inside: avoid; margin: 0 0 40px; position: relative; display: block; }
+  .pinboard figure:nth-child(3n+2) { margin-top: 26px; }
+  .pinboard button.print { display: block; width: 100%; border: 0; cursor: zoom-in; text-align: left; transition: transform .25s, box-shadow .25s; }
+  .pinboard button.print:hover, .pinboard button.print:focus-visible { transform: rotate(0deg) translateY(-6px) scale(1.02); z-index: 5; }
+  .nail { position: absolute; left: 50%; top: -9px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ef9a85, var(--coral-d) 60%, #6e2414); box-shadow: 2px 3px 3px rgba(0,0,0,.4); z-index: 4; }
+  dialog { border: 3px solid var(--ink); background: var(--paper2); color: var(--ink); width: min(1360px, 96vw); max-height: 94vh; margin: auto; padding: 14px; overflow: auto; }
+  dialog::backdrop { background: rgba(8,16,30,.88); }
+  dialog img { width: 100%; height: auto; border: 1px solid var(--ink); background: #0d0c0a; }
+  .lb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .lb-bar .cap { font: 700 26px/1 var(--hand); flex: 1; min-width: 120px; color: var(--coral-d); }
+  .lb-bar button { min-height: 44px; min-width: 44px; padding: 0 14px; border: 2px solid var(--ink); background: var(--paper); font: 400 14px/1 var(--type); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+  .lb-bar button:hover { background: var(--coral); }
+
+  /* TAGS */
+  .tags { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 40px 22px; padding: 10px 8px 0; overflow-x: clip; overflow-y: visible; }
+  .tagw { position: relative; padding-top: 40px; transform-origin: 50% 0; transform: rotate(var(--rot, 0deg)); }
+  .tagw::before { content: ""; position: absolute; left: 50%; top: 0; width: 2px; height: 64px; background: var(--coral-d); transform: translateX(-1px); }
+  .tag { background: var(--paper2); padding: 44px 16px 22px; min-height: 250px; clip-path: polygon(22% 0, 78% 0, 100% 16%, 100% 100%, 0 100%, 0 16%); -webkit-mask: radial-gradient(circle 8px at 50% 24px, transparent 7.5px, #000 8px); mask: radial-gradient(circle 8px at 50% 24px, transparent 7.5px, #000 8px); background-image: repeating-linear-gradient(transparent 0 25px, rgba(20,36,61,.08) 25px 26px); position: relative; }
+  .tagw:nth-child(even) .tag { background-color: var(--manila); }
+  .tag h3 { font-size: 1.25rem; margin-bottom: 8px; }
+  .tag p { font-size: .9rem; line-height: 1.45; color: var(--muted); }
+  .tag .k { display: inline-block; font: 600 13px/1 var(--mono); border: 1.5px solid var(--ink); border-bottom-width: 3px; padding: 4px 7px; background: var(--paper); margin-bottom: 10px; color: var(--ink); }
+  .tagwrap { position: absolute; }
+  .js .tagw { opacity: 0; }
+  .js .tagw.in { animation: swing 1.5s cubic-bezier(.3,.6,.4,1) forwards; animation-delay: var(--d, 0s); }
+  @keyframes swing { 0% { opacity: 0; transform: rotate(-38deg); } 25% { opacity: 1; transform: rotate(16deg); } 50% { transform: rotate(-9deg); } 75% { transform: rotate(4deg); } 100% { opacity: 1; transform: rotate(var(--rot, 0deg)); } }
+
+  /* HOW */
+  .how-route { display: grid; grid-template-columns: 1fr 70px 1fr 70px 1fr; align-items: stretch; }
+  .port-card { color: var(--ink); background: var(--paper2); border: 2px solid var(--ink); padding: 22px 22px 24px; position: relative; box-shadow: 6px 6px 0 var(--ink); min-width: 0; }
+  .port-card .stamp { position: absolute; top: -18px; right: 14px; background: var(--paper); font-size: 13px; padding: 5px 8px 3px; }
+  .port-card h3 { margin: 14px 0 8px; } .port-card p { font-size: .97rem; color: var(--muted); }
+  .port-card small { font: 600 12px/1 var(--mono); color: var(--coral-d); letter-spacing: .1em; text-transform: uppercase; }
+  .leg { display: grid; place-items: center; position: relative; }
+  .leg svg { width: 100%; height: 40px; overflow: visible; }
+  .leg path { stroke: var(--ink); stroke-width: 3; fill: none; stroke-dasharray: .1 8; stroke-linecap: round; }
+
+  /* DOWNLOAD */
+  .dl-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+  .ticket { background: var(--paper2); border: 2px solid var(--ink); position: relative; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+  .ticket::before, .ticket::after { content: ""; position: absolute; top: 118px; width: 22px; height: 22px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); z-index: 1; }
+  .ticket::before { left: -13px; clip-path: inset(0 0 0 50%); } .ticket::after { right: -13px; clip-path: inset(0 50% 0 0); }
+  .ticket .t1 { padding: 20px 22px 18px; min-height: 130px; border-bottom: 3px dotted var(--ink); display: flex; justify-content: space-between; gap: 10px; }
+  .ticket .t1 h3 { font-size: 1.9rem; }
+  .ticket .t1 small { display: block; font: 400 11.5px/1.3 var(--type); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .ticket .t2 { padding: 18px 22px 22px; flex: 1; }
+  .ticket ul { list-style: none; font: 400 14px/1.4 var(--mono); }
+  .ticket li { display: flex; justify-content: space-between; gap: 14px; padding: 6px 0; border-bottom: 1px dotted rgba(20,36,61,.5); }
+  .ticket li b { font-weight: 600; }
+  .ticket li span { color: var(--muted); text-align: right; }
+  .ticket .stamp { font-size: 14px; padding: 5px 8px 3px; flex: none; align-self: flex-start; }
+  .status { margin-top: 34px; display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; background: var(--manila); border: 2px solid var(--ink); padding: 18px 22px; position: relative; }
+  .status p { font-size: 1.02rem; }
+  .status a { font-weight: 600; }
+  .envelope { margin-top: 64px; background: var(--kraft); background-image: var(--grain); border: 2px solid var(--ink); position: relative; padding: 34px 34px 34px; box-shadow: 10px 12px 0 rgba(20,36,61,.3); }
+  .envelope::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 74px; background: linear-gradient(to bottom right, transparent 49.5%, rgba(20,36,61,.55) 49.5%, rgba(20,36,61,.55) 50.5%, transparent 50.5%) 0 0 / 50% 100% no-repeat, linear-gradient(to bottom left, transparent 49.5%, rgba(20,36,61,.55) 49.5%, rgba(20,36,61,.55) 50.5%, transparent 50.5%) 100% 0 / 50% 100% no-repeat; pointer-events: none; }
+  .envelope .lead { font: 800 clamp(1.3rem, 2.4vw, 1.9rem)/1.2 var(--serif); margin-top: 14px; max-width: 28em; }
+  .env-head { padding-top: 84px; position: relative; }
+  .env-head .seal { position: absolute; left: 50%; top: -6px; margin-left: -34px; }
+  .seal { width: 68px; height: 68px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ef8c72, var(--coral-d) 62%, #7c2a17); box-shadow: 0 6px 10px rgba(0,0,0,.35); display: grid; place-items: center; font: 900 30px/1 var(--serif); color: #5d1c0e; position: relative; }
+  .seal::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2px dashed rgba(93,28,14,.6); }
+  .env-head .kicker { justify-content: center; } .env-head .lead, .env-head p.sm { text-align: center; margin-inline: auto; }
+  .env-head p.sm { max-width: 44em; margin-top: 10px; color: #3a2f19; }
+  .os-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 30px; }
+  .slip { background: var(--paper2); border: 2px solid var(--ink); padding: 20px 20px 22px; min-width: 0; position: relative; }
+  .slip h4 { font: 800 1.35rem/1 var(--serif); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+  .slip p { font-size: .97rem; margin-bottom: 12px; }
+  .slip .step-n { font: 600 11px/1 var(--mono); background: var(--ink); color: var(--paper); padding: 4px 6px; }
+  .codebox { display: flex; align-items: stretch; background: var(--blot2); color: #e8e1cf; border: 2px solid var(--ink); margin-top: 10px; }
+  .codebox pre { flex: 1; min-width: 0; padding: 12px 10px 12px 14px; overflow-x: auto; font: 400 13px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+  .codebox .pr { color: var(--coral); user-select: none; }
+  .copy { flex: none; min-width: 64px; min-height: 44px; margin: 4px; padding: 0 10px; border: 1.5px solid #e8dfc4; background: transparent; color: #f1ead6; cursor: pointer; font: 400 12px/1 var(--type); letter-spacing: .1em; text-transform: uppercase; align-self: flex-start; }
+  .copy:hover { background: rgba(255,255,255,.12); } .copy.done { background: var(--coral); color: var(--blot2); border-color: var(--coral); }
+
+  /* BUILD */
+  .build-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 56px; align-items: start; }
+  .customs { list-style: none; border-top: 2px solid var(--ink); margin-top: 18px; }
+  .customs li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px dotted var(--ink); align-items: start; }
+  .customs .box { width: 26px; height: 26px; border: 2px solid var(--ink); position: relative; margin-top: 2px; }
+  .customs .box::after { content: ""; position: absolute; left: 5px; top: -4px; width: 9px; height: 17px; border-right: 4px solid var(--coral-d); border-bottom: 4px solid var(--coral-d); transform: rotate(40deg); }
+  .customs b { display: block; font-weight: 600; } .customs a { color: var(--coral-d); font-size: .95rem; }
+  .steps { list-style: none; counter-reset: s; display: grid; gap: 22px; }
+  .steps li { counter-increment: s; position: relative; padding-left: 58px; min-width: 0; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; border: 3px double var(--ink); font: 900 20px/1 var(--serif); background: var(--paper2); }
+  .steps h3 { font-size: 1.2rem; margin-bottom: 2px; } .steps p { font-size: .95rem; color: var(--muted); }
+
+  /* footer */
+  footer { background: var(--blot2) var(--grain-l); color: #d8d1bd; padding: 64px 0 56px; position: relative; margin-top: 14px; }
+  footer::before { content: ""; position: absolute; left: 0; right: 0; top: -13px; height: 14px; background: radial-gradient(circle at 10px 14px, var(--blot2) 7px, transparent 7.6px) 0 0 / 20px 14px repeat-x; }
+  footer .wrap { display: grid; grid-template-columns: auto 1fr auto; gap: 30px 40px; align-items: center; }
+  footer .big { font: 900 clamp(2.4rem, 6vw, 4.4rem)/.9 var(--serif); letter-spacing: -.03em; color: var(--paper); }
+  footer .big span { color: var(--coral); }
+  footer nav { display: flex; flex-wrap: wrap; gap: 0 6px; }
+  footer nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; font: 400 14px/1 var(--type); letter-spacing: .08em; text-transform: uppercase; border-bottom: 2px solid transparent; }
+  footer nav a:hover { border-color: var(--coral); }
+  .made { grid-column: 1 / -1; border-top: 1px dotted rgba(232,225,207,.4); padding-top: 18px; font: 400 13px/1.4 var(--type); letter-spacing: .06em; display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between; }
+  .made a { display: inline-flex; align-items: center; min-height: 44px; text-underline-offset: 4px; }
+  .footer-seal { transform: rotate(-8deg); }
+
+  /* reveal */
+  .js .rv { opacity: 0; transform: translateY(30px); transition: opacity .8s ease, transform .8s cubic-bezier(.2,.8,.2,1); transition-delay: var(--d, 0s); }
+  .js .rv.in { opacity: 1; transform: none; }
+  .js .print.rv { transform: translateY(40px) rotate(calc(var(--r, 0deg) * 3)); }
+  .js .print.rv.in { transform: rotate(var(--r, 0deg)); }
+
+  /* responsive */
+  @media (max-width: 1100px) {
+    .tags { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .pinboard { columns: 2; }
+    .ticket::before, .ticket::after { display: none; }
+  }
+  @media (max-width: 980px) {
+    section { padding: 84px 0; }
+    .np-side { display: none; }
+    .hero-grid, .chart-grid, .layers-grid, .build-grid, .board-foot { grid-template-columns: minmax(0, 1fr); gap: 44px; }
+    .hero-fig { max-width: 560px; margin-inline: auto; width: 100%; }
+    .story-grid { display: block; }
+    .story .col2, .story .col3 { margin-top: 28px; }
+    .dl-grid { grid-template-columns: minmax(0, 1fr); }
+    .os-grid { grid-template-columns: minmax(0, 1fr); }
+    .how-route { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .leg { height: 66px; } .leg svg { transform: rotate(90deg); width: 60px; }
+    footer .wrap { grid-template-columns: minmax(0, 1fr); }
+    .quays { grid-template-columns: minmax(0, 1fr); }
+    .channel { height: 54px; } .channel::before { top: 0; bottom: 0; } .channel span { writing-mode: horizontal-tb; padding: 2px 8px; }
+  }
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    section { padding: 70px 0; }
+    .top nav a:not(.gh) { display: none; }
+    .issue .wrap > span:nth-child(n+3) { display: none; }
+    .board { padding: 18px 14px 16px; }
+    .board-head h3 { font-size: 1.4rem; }
+    .berth { padding: 18px 10px 14px; gap: 14px 10px; justify-content: center; }
+    .crate { width: 46%; max-width: 160px; }
+    .seg button { padding: 0 12px; font-size: 14px; }
+    .tags { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 12px; }
+    .tag { padding: 44px 12px 20px; min-height: 270px; }
+    .pinboard { columns: 1; padding: 44px 16px 40px; border-width: 8px; }
+    .pinboard figure:nth-child(3n+2) { margin-top: 0; }
+    .bol { padding: 20px 16px 22px; }
+    .hero-fig .stamp { right: 0; bottom: 30px; font-size: 15px; }
+    .cta .btn { flex: 1 1 100%; }
+    .envelope { padding: 24px 14px 26px; }
+    .status { grid-template-columns: minmax(0, 1fr); }
+    .loadcard { grid-template-columns: 1fr; } .loadcard svg { display: none; }
+    .waterfall { padding: 16px 12px 14px; }
+    .runpanel { padding: 16px 12px; }
+    .foot { grid-template-columns: minmax(0, 1fr); }
+    table.manifest { font-size: 13px; }
+    .manifest th, .manifest td { padding: 8px 5px; }
+    .manifest thead th { font-size: 9.5px; letter-spacing: .02em; }
+    .manifest tbody th { gap: 5px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .js .rv, .js .tagw { opacity: 1 !important; transform: none !important; }
+    .js .print.rv { transform: rotate(var(--r, 0deg)) !important; }
+    .js .tagw { transform: rotate(var(--rot, 0deg)) !important; }
+    .ship { transform: translateX(30vw); }
+  }
+</style>
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Dockman, top of page"><i aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#10233d" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg></i>Dockman</a>
+    <nav aria-label="Sections">
+      <a href="#board">Board</a><a href="#manifest">Manifest</a><a href="#chart">Chart</a><a href="#layers">Layers</a><a href="#prints">Prints</a><a href="#download">Download</a><a href="#build">Build</a>
+      <a class="gh" href="https://github.com/AbyAbyss/dockman">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<!-- MASTHEAD + HERO -->
+<div class="hero" id="top">
+  <div class="issue"><div class="wrap"><span>Early edition · in development, usable today</span><span>macOS · Windows · Linux</span><span>MIT licensed · no account</span><span>No telemetry</span></div></div>
+  <div class="wrap">
+    <div class="nameplate">
+      <div class="np-side l">Vol. 1<br>The Shipping<br>Manifest</div>
+      <div class="np-side r">Docker,<br>Podman,<br>one ledger</div>
+      <span class="np" aria-hidden="true">Dock<span>man</span></span>
+      <div class="sub">A desktop app for two container engines</div>
+    </div>
+
+    <div class="hero-grid">
+      <div>
+        <p class="kicker rv"><b>Front page</b>Tauri 2 · Rust · React</p>
+        <h1 class="rv" style="margin-top:16px"><span class="sr">Dockman: </span>Docker and Podman, <em>side by side</em> in one window.</h1>
+        <p class="lede rv">Dockman is a native desktop app that manages Docker and Podman together. Containers, images, volumes, networks, builds and the CLI binaries themselves, on one dashboard, with a filter to look at one engine or both.</p>
+        <div class="cta rv">
+          <a class="btn primary" href="#download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M6 11l6 6 6-6M4 21h16"/></svg>Download v0.3.0</a>
+          <a class="btn" href="https://github.com/AbyAbyss/dockman"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 00-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 015.78 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.24 2.76.12 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0012 .5z"/></svg>View on GitHub</a>
+        </div>
+        <div class="hero-note rv">
+          <span class="stamp green" style="--sr:-3deg">v0.3.0 out</span>
+          <span class="hand">installers for macOS, Windows and Linux, or build it yourself</span>
+        </div>
+      </div>
+      <figure class="hero-fig rv" data-par="-0.04">
+        <div class="plate" aria-label="Sample container number DKMN 204117 6"><b>DKMN 204117 6</b><small>22G1 · SAMPLE</small></div>
+        <div class="print">
+          <span class="tape t1"></span><span class="tape t2"></span>
+          <img src="assets/dockman/dashboard.webp" width="1600" height="1066" alt="The Dockman dashboard: counts of running containers, cached images, volumes and networks, Docker and Podman engine cards and an activity feed." fetchpriority="high" />
+          <figcaption>the real dashboard, twin engine cards and all</figcaption>
+        </div>
+        <span class="stamp green" style="--sr:7deg" aria-hidden="true">Cleared</span>
+      </figure>
+    </div>
+
+    <div class="route" aria-hidden="true">
+      <span class="port a">Docker</span><span class="port b">Podman</span>
+      <svg class="line" viewBox="0 0 1000 6" preserveAspectRatio="none"><line x1="0" y1="3" x2="1000" y2="3" stroke="#14243d" stroke-width="3" stroke-dasharray="1 9" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>
+      <svg class="ship" viewBox="0 0 56 40"><path d="M4 24h48l-8 12H12z" fill="#14243d"/><path d="M14 24v-8h22v8M20 16v-6h10v6" fill="#efe4cc" stroke="#14243d" stroke-width="2.5" stroke-linejoin="round"/><rect x="22" y="3" width="6" height="7" fill="#dc6e52" stroke="#14243d" stroke-width="2"/><rect x="16" y="18" width="5" height="4" fill="#2496ed"/><rect x="24" y="18" width="5" height="4" fill="#892ca0"/></svg>
+    </div>
+  </div>
+</div>
+
+<!-- DOCK BOARD -->
+<section id="board" class="blot board-sec" aria-labelledby="board-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 1</b>The signature interaction</p>
+      <h2 id="board-h">The dock board. <em>Push a crate across.</em></h2>
+      <p>Two quays, one for each engine. Drag a crate from one to the other, filter the view like the real app does, or run a container and watch the scaffolding go up.</p>
+    </div>
+
+    <div class="board" id="boardapp" data-f="both">
+      <div class="board-head">
+        <h3>Dock board</h3>
+        <p class="simtag"><span class="stamp coral" style="--sr:-3deg">Simulation</span><span>Sample data only. This never talks to a real Docker or Podman.</span></p>
+      </div>
+      <p class="noscript">This board needs JavaScript to move crates. The sample manifest below still reads fine without it.</p>
+
+      <div class="controls">
+        <span class="ctl-lbl" id="flbl">Show</span>
+        <div class="seg" role="radiogroup" aria-labelledby="flbl" id="filter">
+          <button type="button" role="radio" aria-checked="true" data-f="both" style="--c:var(--coral)"><i></i>Both</button>
+          <button type="button" role="radio" aria-checked="false" data-f="docker" style="--c:var(--docker)"><i></i>Docker</button>
+          <button type="button" role="radio" aria-checked="false" data-f="podman" style="--c:var(--podman-l)"><i></i>Podman</button>
+        </div>
+        <button class="btn primary" type="button" id="runbtn" aria-expanded="false" aria-controls="runpanel">Run a container</button>
+        <button class="btn" type="button" id="resetbtn">Reset board</button>
+      </div>
+
+      <form class="runpanel" id="runpanel" aria-labelledby="rp-h">
+        <h4 id="rp-h">Run Container</h4>
+        <p class="hostline">Sample host: Apple Silicon (arm64). Fallback to Docker on arch mismatch: on</p>
+        <fieldset><legend>Image preset</legend>
+          <div class="chips" id="presets">
+            <label><input type="radio" name="preset" value="nginx" checked><span>nginx:alpine</span></label>
+            <label><input type="radio" name="preset" value="postgres"><span>postgres:16</span></label>
+            <label><input type="radio" name="preset" value="redis"><span>redis:7</span></label>
+            <label><input type="radio" name="preset" value="node"><span>node:20</span></label>
+            <label><input type="radio" name="preset" value="legacy"><span>legacy-erp:1.4 <em>amd64 only</em></span></label>
+          </div>
+        </fieldset>
+        <fieldset><legend>Runtime</legend>
+          <div class="chips">
+            <label><input type="radio" name="rt" value="docker" checked><span>Docker</span></label>
+            <label><input type="radio" name="rt" value="podman"><span>Podman</span></label>
+          </div>
+        </fieldset>
+        <div class="runrow">
+          <button class="btn primary" type="submit" id="loadbtn">Load crate</button>
+          <button class="btn" type="button" id="demobtn">Try the arch mismatch</button>
+          <button class="btn line" type="button" id="cancelbtn">Close</button>
+        </div>
+      </form>
+
+      <div class="quays" id="quays">
+        <div class="quay" data-rt="docker" role="group" aria-label="Docker quay">
+          <div class="quay-top"><h4>Docker</h4><span>engine running · sample</span></div>
+          <div class="berth" id="berth-docker" role="group" aria-label="Docker crates">
+            <button class="crate" type="button" data-id="api" data-name="api-gw" data-image="node:20" data-port=":3000" data-vol="" data-net="appnet" data-rt="docker" style="--rot:-1.5deg"><span class="grip"></span><span class="lbl"><span class="cn">api-gw</span><span class="ci">node:20</span><span class="cp">:3000</span></span></button>
+            <button class="crate" type="button" data-id="web" data-name="web" data-image="nginx:alpine" data-port=":8080" data-vol="" data-net="appnet" data-rt="docker" style="--rot:1deg"><span class="grip"></span><span class="lbl"><span class="cn">web</span><span class="ci">nginx:alpine</span><span class="cp">:8080</span></span></button>
+            <button class="crate" type="button" data-id="db" data-name="db" data-image="postgres:16" data-port=":5432" data-vol="pgdata" data-net="appnet" data-rt="docker" style="--rot:-.5deg"><span class="grip"></span><span class="lbl"><span class="cn">db</span><span class="ci">postgres:16</span><span class="cp">:5432</span></span></button>
+          </div>
+          <div class="water" aria-hidden="true"></div>
+          <div class="loadcard" aria-hidden="true"></div>
+          <span class="stamp pop" aria-hidden="true"></span>
+        </div>
+        <div class="channel" aria-hidden="true"><span>ferry</span></div>
+        <div class="quay" data-rt="podman" role="group" aria-label="Podman quay">
+          <div class="quay-top"><h4>Podman</h4><span>engine running · sample</span></div>
+          <div class="berth" id="berth-podman" role="group" aria-label="Podman crates">
+            <button class="crate" type="button" data-id="cache" data-name="cache" data-image="redis:7" data-port=":6379" data-vol="redisdata" data-net="jobs" data-rt="podman" style="--rot:1.5deg"><span class="grip"></span><span class="lbl"><span class="cn">cache</span><span class="ci">redis:7</span><span class="cp">:6379</span></span></button>
+            <button class="crate" type="button" data-id="worker" data-name="worker" data-image="python:3.12" data-port=":9000" data-vol="" data-net="jobs" data-rt="podman" style="--rot:-1deg"><span class="grip"></span><span class="lbl"><span class="cn">worker</span><span class="ci">python:3.12</span><span class="cp">:9000</span></span></button>
+          </div>
+          <div class="water" aria-hidden="true"></div>
+          <div class="loadcard" aria-hidden="true"></div>
+          <span class="stamp pop" aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <p class="hint" id="hint">Drag a crate across. Keyboard: Tab to a crate, then <kbd>D</kbd> sends it to Docker, <kbd>P</kbd> to Podman. Enter or a tap swaps it.</p>
+
+      <div class="board-foot">
+        <table class="manifest" id="manifest-t">
+          <caption>Manifest · sample counts, live</caption>
+          <thead><tr><th scope="col">Carrier</th><th scope="col">Running</th><th scope="col">Images</th><th scope="col">Volumes</th><th scope="col">Networks</th></tr></thead>
+          <tbody>
+            <tr data-r="docker" style="--c:var(--docker)"><th scope="row"><i></i>Docker</th><td data-k="run">3</td><td data-k="img">7</td><td data-k="vol">2</td><td data-k="net">2</td></tr>
+            <tr data-r="podman" style="--c:var(--podman-l)"><th scope="row"><i></i>Podman</th><td data-k="run">2</td><td data-k="img">5</td><td data-k="vol">2</td><td data-k="net">2</td></tr>
+          </tbody>
+          <tfoot><tr data-r="all"><th scope="row">In view</th><td data-k="run">5</td><td data-k="img">12</td><td data-k="vol">4</td><td data-k="net">4</td></tr></tfoot>
+        </table>
+        <div>
+          <p class="log-lbl" id="loglbl">Dispatch log</p>
+          <ol class="log" id="log" aria-live="polite" aria-labelledby="loglbl"><li><time>--:--</time><span>Board ready. Five sample crates on two quays.</span></li></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STORY -->
+<section id="story" class="story" aria-labelledby="story-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Feature story</b>What it is</p>
+      <h2 id="story-h">One small harbour for <em>both</em> of your container engines.</h2>
+    </div>
+    <div class="story-grid">
+      <div class="col1 rv">
+        <p class="dropcap">Anyone who has run Docker and Podman on one laptop knows the shuffle: two command lines, two lists, two sets of habits. Dockman puts both engines on the same dashboard. Each gets its own card showing whether the engine is running, and the pages below it work with both.</p>
+        <p>You run a container on either runtime from the same composer, pick an image preset, name it, map ports, environment and volumes, and set a command override. A filter at the top does what the board above does: show both engines, or only one.</p>
+        <p>It is a native app, built with Tauri 2 and Rust under a React front end, so there is no bundled browser. It is in development, but it is usable today.</p>
+      </div>
+      <aside class="col2 rv" style="--d:.1s">
+        <blockquote class="pull">No telemetry, no account. Dockman only goes online to pull an image, install a CLI or check for updates.<cite>On record · the source code</cite></blockquote>
+        <p class="marginal">psst: try the arch mismatch button on the board</p>
+        <p>Two engines can also disagree about hardware. If Podman can't run, pull or build an image because of an architecture mismatch, Dockman retries it on Docker with <code>--platform</code>, which runs x86_64 images on Apple Silicon under emulation.<sup>1</sup></p>
+      </aside>
+      <aside class="col3 rv" style="--d:.2s">
+        <ul class="facts" aria-label="Fast facts">
+          <li>Shell<b>Tauri 2, Rust</b></li>
+          <li>Interface<b>React 18, TS</b></li>
+          <li>Engines<b>Docker, Podman</b></li>
+          <li>Platforms<b>macOS, Windows, Linux</b></li>
+          <li>Licence<b>MIT</b></li>
+          <li>Account<b>None</b></li>
+          <li>Status<b>v0.3.0, in development</b></li>
+        </ul>
+      </aside>
+    </div>
+    <div class="foot rv">
+      <p><sup>1</sup> The retry is a Settings toggle, "Architecture auto-fallback". With it off, Dockman offers the Docker retry as a button instead. The board above plays this scenario with sample data.</p>
+      <p><sup>2</sup> Every container, count and log line on the dock board is invented sample data. The screenshots further down are real, taken from an earlier build of the app.</p>
+    </div>
+  </div>
+</section>
+
+<!-- BILL OF LADING -->
+<section id="manifest" class="scene" aria-labelledby="bol-h" data-n="9">
+  <div class="scene-pin">
+    <div class="wrap">
+      <div class="bol">
+        <p class="kicker"><b>Fig. 2</b>Bill of lading</p>
+        <h2 id="bol-h">Nine lines on the manifest.</h2>
+        <p class="small">Scroll to clear each line. The prints are real screenshots.</p>
+        <ol class="lines" id="lines">
+          <li class="line"><button class="lb" type="button"><span class="no">01</span><span>Dashboard</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:-1.5deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/dashboard.webp" width="1600" height="1066" alt="Dockman dashboard with four counters and Docker and Podman engine cards." loading="lazy" /><figcaption class="cap">Everything at a glance</figcaption><p class="desc">Running containers, cached images, volumes and networks. Twin Docker and Podman engine cards, an activity feed and one-click quick commands.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">02</span><span>Containers</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:1.4deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/containers.webp" width="1600" height="1072" alt="Containers table with status and runtime filters." loading="lazy" /><figcaption class="cap">Start, stop, pause, restart, remove</figcaption><p class="desc">A filterable, groupable table. The Run Container composer takes image presets, a name, a runtime, port, env and volume mappings and a command override.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">03</span><span>Shell</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:-1deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/containers.webp" width="1600" height="1072" alt="Containers table, where each running container has an Open shell button." loading="lazy" /><figcaption class="cap">"Open shell" lives on every row</figcaption><p class="desc">An interactive shell into any running container. Switch between sh and bash, and walk your command history with the arrow keys.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">04</span><span>Images</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:1.8deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/images.webp" width="1600" height="1064" alt="Images page with a local library, storage breakdown and prune controls." loading="lazy" /><figcaption class="cap">What is cached, and what to prune</figcaption><p class="desc">Browse the local library, pull from any registry, see a storage breakdown, prune what is unused and review top registries.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">05</span><span>Volumes</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:-1.7deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/volumes.webp" width="1600" height="1070" alt="Volumes page showing sizes, attachments and bind mounts." loading="lazy" /><figcaption class="cap">Reclaimable space, in plain sight</figcaption><p class="desc">Sizes straight from the engine, which container mounts each volume, every bind mount, and one-click prune.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">06</span><span>Networks</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:1.2deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/networks.webp" width="1600" height="1070" alt="Networks page with a topology map and live bandwidth telemetry." loading="lazy" /><figcaption class="cap">A topology map plus live in and out</figcaption><p class="desc">A topology map of what is attached to what, plus live inbound and outbound bandwidth.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">07</span><span>Builds</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:-1.2deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/builds.webp" width="1600" height="1066" alt="Builds page with layer cache, build history and a layer waterfall." loading="lazy" /><figcaption class="cap">Layer cache, history, waterfall</figcaption><p class="desc">Start image builds with layer caching, follow the build history and inspect the layer waterfall.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">08</span><span>Binaries</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:1.6deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/binaries.webp" width="1600" height="1058" alt="Binaries page for installing, updating and switching Docker and Podman CLI versions." loading="lazy" /><figcaption class="cap">No CLI yet? Install one here</figcaption><p class="desc">Install, update and switch between Docker and Podman CLI versions, with a setup checklist.</p></figure></li>
+          <li class="line"><button class="lb" type="button"><span class="no">09</span><span>Settings</span><span class="cl">Cleared</span></button>
+            <figure class="print" style="--r:-1.4deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/settings.webp" width="1600" height="1054" alt="Settings page with active runtime, engine resources and registries." loading="lazy" /><figcaption class="cap">Runtime, resources, registries</figcaption><p class="desc">Pick the active runtime, resize the Podman machine, read engine facts, sign in to registries and check for updates.</p></figure></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHART -->
+<section id="chart" class="blot" aria-labelledby="chart-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 3</b>Networks</p>
+      <h2 id="chart-h">A route map of <em>what is attached to what.</em></h2>
+      <p>The Networks page draws a topology map and tracks live inbound and outbound bandwidth. This chart is a sample topology, drawn as you scroll.</p>
+    </div>
+    <div class="chart-grid">
+      <div class="chartbox" id="chartbox">
+        <svg id="chartsvg" viewBox="0 0 640 620" role="img" aria-label="Sample route map. A host node connects to an appnet network on Docker holding web, api-gw and db, and to a jobs network on Podman holding worker and cache.">
+          <defs>
+            <mask id="m0" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M320 100 C 320 170, 160 160, 160 214" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m1" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M320 100 C 320 170, 480 160, 480 214" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m2" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M130 262 C 110 320, 90 340, 80 396" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m3" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M190 262 C 210 320, 230 340, 240 396" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m4" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M160 262 C 160 360, 160 440, 160 520" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m5" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M450 262 C 430 320, 420 350, 410 396" stroke="#fff" stroke-width="12" fill="none"/></mask>
+            <mask id="m6" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="620"><path class="mk" d="M510 262 C 530 320, 550 350, 560 396" stroke="#fff" stroke-width="12" fill="none"/></mask>
+          </defs>
+          <g class="compass" transform="translate(588 64)" fill="none" stroke="#e8dfc4" stroke-width="1.5"><circle r="26"/><path d="M0 -34V34M-34 0H34"/><path d="M0 -26L6 0L0 26L-6 0Z" fill="#dc6e52" stroke="none"/><text x="-4" y="-38" style="font-size:11px;fill:#e8dfc4;stroke:none">N</text></g>
+          <g id="edges">
+            <path class="rt-path" mask="url(#m0)" stroke="#dc6e52" d="M320 100 C 320 170, 160 160, 160 214"/>
+            <path class="rt-path" mask="url(#m1)" stroke="#dc6e52" d="M320 100 C 320 170, 480 160, 480 214"/>
+            <path class="rt-path" mask="url(#m2)" stroke="#5db3ff" d="M130 262 C 110 320, 90 340, 80 396"/>
+            <path class="rt-path" mask="url(#m3)" stroke="#5db3ff" d="M190 262 C 210 320, 230 340, 240 396"/>
+            <path class="rt-path" mask="url(#m4)" stroke="#5db3ff" d="M160 262 C 160 360, 160 440, 160 520"/>
+            <path class="rt-path" mask="url(#m5)" stroke="#d9a0ee" d="M450 262 C 430 320, 420 350, 410 396"/>
+            <path class="rt-path" mask="url(#m6)" stroke="#d9a0ee" d="M510 262 C 530 320, 550 350, 560 396"/>
+          </g>
+          <g class="nd" data-t="0"><g transform="translate(320 66)"><circle r="34" fill="#dc6e52" stroke="#e8dfc4" stroke-width="2.5"/><circle r="26" fill="none" stroke="#10233d" stroke-width="1.5" stroke-dasharray="3 3"/><text y="5" text-anchor="middle" style="font-size:15px;font-weight:600;fill:#10233d">host</text></g><text x="320" y="124" text-anchor="middle" style="font-size:11px;fill:#aebbd0">published ports</text></g>
+          <g class="nd hub" data-t=".12"><circle cx="160" cy="238" r="46" stroke="#2496ed"/><text x="160" y="236">appnet</text><text class="s" x="160" y="253">docker</text></g>
+          <g class="nd hub" data-t=".12"><circle cx="480" cy="238" r="46" stroke="#c88ae0"/><text x="480" y="236">jobs</text><text class="s" x="480" y="253">podman</text></g>
+          <g class="nd node-c" data-t=".3"><rect x="25" y="396" width="110" height="46" rx="2"/><text class="n" x="38" y="416">web</text><text class="i" x="38" y="433">nginx:alpine</text></g>
+          <g class="nd node-c" data-t=".4"><rect x="185" y="396" width="110" height="46" rx="2"/><text class="n" x="198" y="416">api-gw</text><text class="i" x="198" y="433">node:20</text></g>
+          <g class="nd node-c" data-t=".5"><rect x="105" y="520" width="110" height="46" rx="2"/><text class="n" x="118" y="540">db</text><text class="i" x="118" y="557">postgres:16</text></g>
+          <g class="nd node-c" data-t=".6"><rect x="355" y="396" width="110" height="46" rx="2"/><text class="n" x="368" y="416">worker</text><text class="i" x="368" y="433">python:3.12</text></g>
+          <g class="nd node-c" data-t=".7"><rect x="505" y="396" width="110" height="46" rx="2"/><text class="n" x="518" y="416">cache</text><text class="i" x="518" y="433">redis:7</text></g>
+          <g id="ships">
+            <g class="sh" fill="#e8dfc4"><path d="M-9 2h18l-3 5h-12z M-5 -2h10v4h-10z M-1 -7h2v5h-2z"/></g>
+            <g class="sh" fill="#e8dfc4"><path d="M-9 2h18l-3 5h-12z M-5 -2h10v4h-10z M-1 -7h2v5h-2z"/></g>
+            <g class="sh" fill="#e8dfc4"><path d="M-9 2h18l-3 5h-12z M-5 -2h10v4h-10z M-1 -7h2v5h-2z"/></g>
+            <g class="sh" fill="#e8dfc4"><path d="M-9 2h18l-3 5h-12z M-5 -2h10v4h-10z M-1 -7h2v5h-2z"/></g>
+          </g>
+          <text x="20" y="602" style="font-size:12px;fill:#aebbd0">Coral: host to network. Blue: Docker attachments. Purple: Podman attachments.</text>
+        </svg>
+      </div>
+      <div>
+        <p class="hand" style="font-size:30px;color:var(--coral);transform:rotate(-2deg)">sample topology, real page below</p>
+        <figure class="print rv" style="--r:2deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/networks.webp" width="1600" height="1070" alt="The real Networks page: a topology map and live inbound and outbound bandwidth." loading="lazy" /><figcaption>the real Networks page, with live in and out</figcaption></figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LAYERS -->
+<section id="layers" aria-labelledby="layers-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 4</b>Builds</p>
+      <h2 id="layers-h">A layer waterfall, <em>stacked like cargo.</em></h2>
+      <p>The Builds page runs image builds with layer caching, keeps the history and shows the waterfall for each build. Below, a sample build stacks up as you scroll. Cached layers are hatched, new ones are solid.</p>
+    </div>
+    <div class="layers-grid">
+      <div class="waterfall" id="waterfall" role="img" aria-label="Sample build waterfall with seven layers. Three are cached, four are built. The npm ci layer takes the longest, then npm run build.">
+        <div class="wf-head"><span>Sample build · node-app</span><span>Total 30.0s</span></div>
+        <div class="wf" id="wf"></div>
+        <div class="wf-axis"><span>0s</span><span>10s</span><span>20s</span><span>30s</span></div>
+        <div class="wf-legend"><span><i class="c"></i>Cached</span><span><i></i>Built</span></div>
+      </div>
+      <figure class="print rv" style="--r:-1.8deg"><span class="tape t1"></span><span class="tape t2"></span><img src="assets/dockman/builds.webp" width="1600" height="1066" alt="The real Builds page with layer cache, build history and a layer waterfall." loading="lazy" /><figcaption>the real Builds page</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- PRINTS -->
+<section id="prints" style="background:var(--manila) var(--grain)" aria-labelledby="prints-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 5</b>Contact prints</p>
+      <h2 id="prints-h">Real screens, <em>pinned to the board.</em></h2>
+      <p>Straight from the app. Click or press Enter on a print to open it large, then use the arrow keys to flip through.</p>
+    </div>
+    <div class="pinboard" id="pinboard">
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:-2deg" data-cap="Dashboard"><span class="tape t1"></span><img src="assets/dockman/dashboard.webp" width="1600" height="1066" alt="Dashboard" loading="lazy" /><span class="cap">Dashboard</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:1.6deg" data-cap="Containers"><span class="tape t2"></span><img src="assets/dockman/containers.webp" width="1600" height="1072" alt="Containers" loading="lazy" /><span class="cap">Containers</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:-1deg" data-cap="Run Container composer"><span class="tape t1"></span><img src="assets/dockman/run-container.webp" width="1600" height="1068" alt="The Run Container composer with image presets, name, runtime and port, env and volume mappings." loading="lazy" /><span class="cap">The Run Container composer</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:2deg" data-cap="Scaffolding loader while an image pulls"><span class="tape t2"></span><img src="assets/dockman/run-container-progress.webp" width="1600" height="960" alt="An animated scaffolding loader shown while an image pulls." loading="lazy" /><span class="cap">Scaffolding, while an image pulls</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:-1.6deg" data-cap="Images"><span class="tape t1"></span><img src="assets/dockman/images.webp" width="1600" height="1064" alt="Images" loading="lazy" /><span class="cap">Images</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:1.2deg" data-cap="Volumes"><span class="tape t2"></span><img src="assets/dockman/volumes.webp" width="1600" height="1070" alt="Volumes" loading="lazy" /><span class="cap">Volumes</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:-2.2deg" data-cap="Networks"><span class="tape t1"></span><img src="assets/dockman/networks.webp" width="1600" height="1070" alt="Networks" loading="lazy" /><span class="cap">Networks</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:1.4deg" data-cap="Builds"><span class="tape t2"></span><img src="assets/dockman/builds.webp" width="1600" height="1066" alt="Builds" loading="lazy" /><span class="cap">Builds</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:-1.2deg" data-cap="Binaries"><span class="tape t1"></span><img src="assets/dockman/binaries.webp" width="1600" height="1058" alt="Binaries" loading="lazy" /><span class="cap">Binaries</span></button></figure>
+      <figure><span class="nail"></span><button class="print" type="button" style="--r:2deg" data-cap="Settings"><span class="tape t2"></span><img src="assets/dockman/settings.webp" width="1600" height="1054" alt="Settings" loading="lazy" /><span class="cap">Settings</span></button></figure>
+    </div>
+  </div>
+</section>
+<dialog id="lb" aria-label="Screenshot, enlarged">
+  <div class="lb-bar"><span class="cap" id="lbcap"></span><button type="button" id="lbprev" aria-label="Previous screenshot">Prev</button><button type="button" id="lbnext" aria-label="Next screenshot">Next</button><button type="button" id="lbclose">Close</button></div>
+  <img id="lbimg" src="" alt="" width="1600" height="1066" />
+</dialog>
+
+<!-- TAGS -->
+<section id="small" aria-labelledby="small-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 6</b>Small things</p>
+      <h2 id="small-h">Luggage tags for the <em>little details.</em></h2>
+    </div>
+    <div class="tags">
+      <div class="tagw" style="--rot:-2deg;--d:0s"><div class="tag"><span class="k">cmd+K</span><h3>Search</h3><p>A command search opens from the keyboard, so you do not need to reach for the sidebar.</p></div></div>
+      <div class="tagw" style="--rot:1.5deg;--d:.12s"><div class="tag"><span class="k">pull</span><h3>Scaffolding loader</h3><p>An animated scaffolding loader plays while an image pulls, instead of a bare spinner.</p></div></div>
+      <div class="tagw" style="--rot:-1deg;--d:.24s"><div class="tag"><span class="k">arch</span><h3>Retry on Docker</h3><p>If a Podman run hits an architecture mismatch, Dockman can retry on Docker. It is a Settings toggle.</p></div></div>
+      <div class="tagw" style="--rot:2deg;--d:.36s"><div class="tag"><span class="k">verify</span><h3>Verified installs</h3><p>The Binaries page runs every CLI it installs and checks the version before calling it done.</p></div></div>
+      <div class="tagw" style="--rot:-1.6deg;--d:.48s"><div class="tag"><span class="k">stats</span><h3>Live numbers</h3><p>CPU, memory, disk and traffic come straight from stats, info and system df.</p></div></div>
+      <div class="tagw" style="--rot:1.2deg;--d:.6s"><div class="tag"><span class="k">usage</span><h3>Telemetry</h3><p>There is none, and no account to create.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how" class="blot" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 7</b>Route of the cargo</p>
+      <h2 id="how-h">A thin native shell over <em>the CLIs you already have.</em></h2>
+      <p>Dockman does not ship its own container engine. It drives the Docker and Podman command line tools and shows you what they report.</p>
+    </div>
+    <div class="how-route">
+      <div class="port-card rv"><span class="stamp">Origin</span><small>Interface</small><h3>React and TypeScript</h3><p>The UI, built with Vite and React 18, with state in Zustand. One page per area: dashboard, containers, images, volumes, networks, builds, binaries, settings.</p></div>
+      <div class="leg" aria-hidden="true"><svg viewBox="0 0 70 40"><path d="M2 20H68" style="stroke:#e8dfc4"/></svg></div>
+      <div class="port-card rv" style="--d:.1s"><span class="stamp">Transit</span><small>Shell</small><h3>Tauri 2 and Rust</h3><p>Rust commands handle containers, images, volumes, networks, builds, compose, exec and runtime detection. The app is a small native binary.</p></div>
+      <div class="leg" aria-hidden="true"><svg viewBox="0 0 70 40"><path d="M2 20H68" style="stroke:#e8dfc4"/></svg></div>
+      <div class="port-card rv" style="--d:.2s"><span class="stamp">Destination</span><small>Engines</small><h3>Docker and Podman</h3><p>Rust spawns the <code style="background:rgba(20,36,61,.1)">docker</code> and <code style="background:rgba(20,36,61,.1)">podman</code> CLIs and reads their output. Use the ones on your machine, or install them from the Binaries page.</p></div>
+    </div>
+    <div class="stack-chips rv"><span class="chip">Tauri 2</span><span class="chip">Rust</span><span class="chip">React 18</span><span class="chip">TypeScript 5</span><span class="chip">Vite</span><span class="chip">Zustand</span><span class="chip" style="color:var(--coral)">MIT</span></div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section id="download" aria-labelledby="dl-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 8</b>Download</p>
+      <h2 id="dl-h">Installers are <em>on the dock.</em></h2>
+      <p>v0.3.0 is out. Pick the installer for your platform from the Releases page.</p>
+    </div>
+    <div class="dl-grid">
+      <article class="ticket rv"><div class="t1"><div><small>Platform 1</small><h3>macOS</h3></div><span class="stamp green" style="--sr:6deg">v0.3.0</span></div><div class="t2"><ul><li><b>.dmg</b><span>Apple Silicon</span></li><li><b>.dmg</b><span>Intel</span></li></ul></div></article>
+      <article class="ticket rv" style="--d:.1s"><div class="t1"><div><small>Platform 2</small><h3>Windows</h3></div><span class="stamp green" style="--sr:-5deg">v0.3.0</span></div><div class="t2"><ul><li><b>.msi</b><span>installer</span></li><li><b>.exe</b><span>installer</span></li></ul></div></article>
+      <article class="ticket rv" style="--d:.2s"><div class="t1"><div><small>Platform 3</small><h3>Linux</h3></div><span class="stamp green" style="--sr:4deg">v0.3.0</span></div><div class="t2"><ul><li><b>.AppImage</b><span>portable</span></li><li><b>.deb</b><span>Debian, Ubuntu</span></li><li><b>.rpm</b><span>Fedora, openSUSE</span></li></ul></div></article>
+    </div>
+    <div class="status rv">
+      <span class="stamp coral" style="--sr:-4deg">Status</span>
+      <p>Every installer is on the <a href="https://github.com/AbyAbyss/dockman/releases/latest">Releases page</a>. They aren't code-signed yet, so read the first-launch notes below, or <a href="#build">build from source</a>.</p>
+    </div>
+
+    <div class="envelope rv" id="first-launch">
+      <div class="env-head">
+        <span class="seal" aria-hidden="true">D</span>
+        <p class="kicker"><b>Fig. 9</b>First launch</p>
+        <p class="lead">macOS will say it can't verify Dockman (free side project, not notarized).</p>
+        <p class="sm">This applies to the installers on the Releases page, and to a build you copy to another machine. An app you build locally opens normally.</p>
+      </div>
+      <div class="os-grid">
+        <div class="slip">
+          <h4><span class="step-n">A</span>macOS</h4>
+          <p>Open <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>, or run this in Terminal:</p>
+          <div class="codebox"><pre><code>xattr -dr com.apple.quarantine /Applications/Dockman.app</code></pre><button class="copy" type="button" aria-label="Copy macOS command">Copy</button></div>
+        </div>
+        <div class="slip">
+          <h4><span class="step-n">B</span>Windows</h4>
+          <p>SmartScreen shows a prompt. Choose <strong>More info → Run anyway</strong>.</p>
+        </div>
+        <div class="slip">
+          <h4><span class="step-n">C</span>Linux</h4>
+          <p>Make the AppImage executable and run it:</p>
+          <div class="codebox"><pre><code>chmod +x Dockman_*.AppImage &amp;&amp; ./Dockman_*.AppImage</code></pre><button class="copy" type="button" aria-label="Copy AppImage command">Copy</button></div>
+          <p style="margin-top:14px">Or install the .deb:</p>
+          <div class="codebox"><pre><code>sudo apt install ./Dockman_*.deb</code></pre><button class="copy" type="button" aria-label="Copy deb command">Copy</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BUILD -->
+<section id="build" style="padding-top:30px" aria-labelledby="build-h">
+  <div class="wrap">
+    <div class="sechead">
+      <p class="kicker"><b>Fig. 10</b>Build from source</p>
+      <h2 id="build-h">A few commands to <em>a running app.</em></h2>
+      <p>Clone it, then let <code>make</code> do the rest.</p>
+    </div>
+    <div class="build-grid">
+      <div class="rv">
+        <h3>Customs checklist</h3>
+        <ul class="customs">
+          <li><span class="box"></span><span><b>Node.js 20 or newer</b><a href="https://nodejs.org">nodejs.org</a></span></li>
+          <li><span class="box"></span><span><b>Rust, stable toolchain</b><a href="https://rustup.rs">rustup.rs</a></span></li>
+          <li><span class="box"></span><span><b>Tauri platform dependencies</b><a href="https://tauri.app/start/prerequisites/">Tauri prerequisites guide</a></span></li>
+        </ul>
+      </div>
+      <ol class="steps">
+        <li class="rv"><h3>Clone the repo</h3><div class="codebox"><pre><code><span class="pr">$ </span>git clone https://github.com/AbyAbyss/dockman.git
+<span class="pr">$ </span>cd dockman</code></pre><button class="copy" type="button" aria-label="Copy clone commands">Copy</button></div></li>
+        <li class="rv"><h3>Install dependencies</h3><div class="codebox"><pre><code><span class="pr">$ </span>make deps</code></pre><button class="copy" type="button" aria-label="Copy install command">Copy</button></div></li>
+        <li class="rv"><h3>Run in development mode</h3><div class="codebox"><pre><code><span class="pr">$ </span>make dev</code></pre><button class="copy" type="button" aria-label="Copy dev command">Copy</button></div></li>
+        <li class="rv"><h3>Or build and install it</h3><p>Builds the installer for your OS and installs it: <code>/Applications</code> on macOS, the <code>.deb</code> or <code>.rpm</code> on Linux, the setup <code>.exe</code> on Windows (run make from Git Bash). <code>make build</code> only builds; the installers land in <code>src-tauri/target/release/bundle/</code>. <code>make help</code> lists the rest.</p><div class="codebox"><pre><code><span class="pr">$ </span>make install</code></pre><button class="copy" type="button" aria-label="Copy make install command">Copy</button></div></li>
+      </ol>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="big">Dock<span>man</span></div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/AbyAbyss/dockman">Repository</a>
+      <a href="https://github.com/AbyAbyss/dockman/releases">Releases</a>
+      <a href="https://github.com/AbyAbyss/dockman/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/AbyAbyss/dockman/issues">Issues</a>
+    </nav>
+    <span class="seal footer-seal" aria-hidden="true">D</span>
+    <div class="made"><span>Free and open source. Sample data on this page is invented.</span><a href="https://abyabyss.github.io/">Made by Aby Saji Pappachan</a></div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  /* reveal */
+  var rvs = $$('.rv, .tagw');
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    rvs.forEach(function (n) { io.observe(n); });
+  } else { rvs.forEach(function (n) { n.classList.add('in'); }); }
+
+  /* copy buttons */
+  function fallbackCopy(t) {
+    var a = document.createElement('textarea'); a.value = t; a.setAttribute('readonly', '');
+    a.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(a); a.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(a);
+  }
+  $$('.copy').forEach(function (b) {
+    var label = b.textContent;
+    b.addEventListener('click', function () {
+      var pre = b.parentNode.querySelector('pre').cloneNode(true);
+      $$('.pr', pre).forEach(function (p) { p.remove(); });
+      var t = pre.textContent.trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).catch(function () { fallbackCopy(t); }); }
+      else { fallbackCopy(t); }
+      b.textContent = 'Copied'; b.classList.add('done');
+      setTimeout(function () { b.textContent = label; b.classList.remove('done'); }, 1800);
+    });
+  });
+
+  /* ================= DOCK BOARD ================= */
+  (function board() {
+    var app = $('#boardapp');
+    var berth = { docker: $('#berth-docker'), podman: $('#berth-podman') };
+    var quayEl = { docker: $('.quay[data-rt="docker"]'), podman: $('.quay[data-rt="podman"]') };
+    var logEl = $('#log');
+    var crates = {}, order = [];
+    var cache = { docker: { img: {}, vol: {}, net: {} }, podman: { img: {}, vol: {}, net: {} } };
+    var extras = { docker: { img: 4, vol: 1 }, podman: { img: 3, vol: 1 } };
+    var busy = false, nameN = {}, suppress = false, timers = [];
+    var PRESETS = {
+      nginx: { image: 'nginx:alpine', base: 'web', port: ':8080', vol: '', net: 'appnet', arch: 'multi' },
+      postgres: { image: 'postgres:16', base: 'pg', port: ':5432', vol: 'pgdata', net: 'appnet', arch: 'multi' },
+      redis: { image: 'redis:7', base: 'cache', port: ':6379', vol: 'redisdata', net: 'jobs', arch: 'multi' },
+      node: { image: 'node:20', base: 'api', port: ':3000', vol: '', net: 'appnet', arch: 'multi' },
+      legacy: { image: 'legacy-erp:1.4', base: 'erp', port: ':8443', vol: '', net: 'appnet', arch: 'amd64' }
+    };
+    var other = function (rt) { return rt === 'docker' ? 'podman' : 'docker'; };
+
+    function wait(ms) { return new Promise(function (res) { if (reduce || !ms) { res(); } else { timers.push(setTimeout(res, ms)); } }); }
+    function stamp() { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+    function log(cls, txt) {
+      var li = document.createElement('li'); if (cls) li.className = cls;
+      var t = document.createElement('time'); t.textContent = stamp();
+      var s = document.createElement('span'); s.textContent = txt;
+      li.appendChild(t); li.appendChild(s); logEl.appendChild(li);
+      while (logEl.children.length > 6) logEl.removeChild(logEl.firstChild);
+    }
+
+    function note(c, rt) { cache[rt].img[c.image] = 1; if (c.vol) cache[rt].vol[c.vol] = 1; if (c.net) cache[rt].net[c.net] = 1; }
+    function size(o) { return Object.keys(o).length; }
+    function counts(rt) {
+      var run = order.filter(function (id) { return crates[id].rt === rt; }).length;
+      return { run: run, img: extras[rt].img + size(cache[rt].img), vol: extras[rt].vol + size(cache[rt].vol), net: 1 + size(cache[rt].net) };
+    }
+    function renderCounts() {
+      var f = app.getAttribute('data-f'), tot = { run: 0, img: 0, vol: 0, net: 0 };
+      ['docker', 'podman'].forEach(function (rt) {
+        var c = counts(rt), row = $('tr[data-r="' + rt + '"]', app);
+        row.classList.toggle('off', f !== 'both' && f !== rt);
+        $$('td', row).forEach(function (td) {
+          var k = td.getAttribute('data-k'), v = String(c[k]);
+          if (td.textContent !== v) { td.textContent = v; flash(td); }
+        });
+        if (f === 'both' || f === rt) { for (var k in tot) tot[k] += c[k]; }
+      });
+      $$('tfoot td', app).forEach(function (td) {
+        var v = String(tot[td.getAttribute('data-k')]);
+        if (td.textContent !== v) { td.textContent = v; flash(td); }
+      });
+    }
+    function flash(td) { if (reduce) return; td.classList.add('bump'); setTimeout(function () { td.classList.remove('bump'); }, 600); }
+
+    function label(c) { return c.name + ', ' + c.image + ', port ' + c.port.slice(1) + ', on ' + (c.rt === 'docker' ? 'Docker' : 'Podman') + '. Press D for Docker or P for Podman. Enter swaps.'; }
+    function applyFilter() {
+      var f = app.getAttribute('data-f');
+      order.forEach(function (id) { var c = crates[id]; c.el.classList.toggle('dim', f !== 'both' && f !== c.rt); });
+      ['docker', 'podman'].forEach(function (rt) { quayEl[rt].classList.toggle('dim', f !== 'both' && f !== rt); });
+      renderCounts();
+    }
+
+    function bindCrate(c) {
+      var el = c.el;
+      el.setAttribute('aria-label', label(c));
+      el.addEventListener('keydown', function (e) {
+        var k = e.key.toLowerCase();
+        if (k === 'd' || k === 'arrowleft') { e.preventDefault(); send(c, 'docker', true); }
+        else if (k === 'p' || k === 'arrowright') { e.preventDefault(); send(c, 'podman', true); }
+      });
+      el.addEventListener('click', function () { if (suppress) return; send(c, other(c.rt), true); });
+      el.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0 || busy) return;
+        if (e.pointerType === 'touch' && !e.target.closest('.grip')) return;
+        var sx = e.clientX, sy = e.clientY, pid = e.pointerId, dragging = false, ghost = null, ox = 0, oy = 0, over = null;
+        function mv(ev) {
+          var dx = ev.clientX - sx, dy = ev.clientY - sy;
+          if (!dragging) {
+            if (dx * dx + dy * dy < 49) return;
+            dragging = true;
+            var r = el.getBoundingClientRect(); ox = sx - r.left; oy = sy - r.top;
+            ghost = el.cloneNode(true); ghost.removeAttribute('id'); ghost.classList.add('ghost'); ghost.setAttribute('aria-hidden', 'true'); ghost.tabIndex = -1;
+            ghost.style.width = r.width + 'px'; ghost.style.height = r.height + 'px';
+            document.body.appendChild(ghost); el.classList.add('lifted');
+            try { el.setPointerCapture(pid); } catch (x) {}
+          }
+          ghost.style.left = (ev.clientX - ox) + 'px'; ghost.style.top = (ev.clientY - oy) + 'px';
+          var hit = document.elementFromPoint(ev.clientX, ev.clientY), q = hit && hit.closest ? hit.closest('.quay') : null;
+          var rt = q ? q.getAttribute('data-rt') : null;
+          if (rt !== over) { if (over) quayEl[over].classList.remove('over'); over = rt; if (over) quayEl[over].classList.add('over'); }
+        }
+        function up() {
+          el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+          if (dragging) {
+            if (ghost) ghost.remove(); el.classList.remove('lifted');
+            if (over) quayEl[over].classList.remove('over');
+            suppress = true; setTimeout(function () { suppress = false; }, 60);
+            if (over && over !== c.rt) send(c, over, true);
+            try { el.releasePointerCapture(pid); } catch (x) {}
+          }
+        }
+        el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      });
+    }
+
+    function place(c, rt, animate) {
+      var first = animate && !reduce ? c.el.getBoundingClientRect() : null;
+      c.rt = rt; c.el.setAttribute('data-rt', rt); berth[rt].appendChild(c.el);
+      c.el.setAttribute('aria-label', label(c));
+      if (first) {
+        var last = c.el.getBoundingClientRect();
+        c.el.style.transition = 'none';
+        c.el.style.transform = 'translate(' + (first.left - last.left) + 'px,' + (first.top - last.top) + 'px)';
+        c.el.getBoundingClientRect();
+        c.el.style.transition = 'transform .5s cubic-bezier(.3,1.1,.4,1)';
+        c.el.style.transform = '';
+        setTimeout(function () { c.el.style.transition = ''; }, 520);
+      }
+    }
+    function send(c, rt, focus) {
+      if (busy || c.rt === rt) return;
+      var from = c.rt;
+      place(c, rt, true);
+      var pulled = !cache[rt].img[c.image];
+      note(c, rt);
+      log('', c.name + ' moved from ' + from + ' to ' + rt + (pulled ? ' (' + rt + ' pulled ' + c.image + ')' : ''));
+      applyFilter();
+      if (focus) c.el.focus({ preventScroll: true });
+    }
+
+    function addCrate(spec, rt) {
+      var el = document.createElement('button'); el.type = 'button'; el.className = 'crate landing';
+      el.setAttribute('data-rt', rt); el.setAttribute('data-name', spec.name); el.style.setProperty('--rot', ((Math.random() * 3) - 1.5).toFixed(1) + 'deg');
+      el.innerHTML = '<span class="grip"></span><span class="lbl"><span class="cn"></span><span class="ci"></span><span class="cp"></span></span>';
+      $('.cn', el).textContent = spec.name; $('.ci', el).textContent = spec.image; $('.cp', el).textContent = spec.port;
+      var c = { id: spec.name, name: spec.name, image: spec.image, port: spec.port, vol: spec.vol, net: spec.net, rt: rt, el: el };
+      if (spec.arch === 'amd64') { var em = document.createElement('em'); em.textContent = 'amd64'; $('.cp', el).appendChild(em); }
+      crates[c.id] = c; order.push(c.id); berth[rt].appendChild(el); bindCrate(c); note(c, rt);
+      setTimeout(function () { el.classList.remove('landing'); }, 600);
+      applyFilter(); return c;
+    }
+
+    /* init from markup */
+    $$('.crate', app).forEach(function (el) {
+      var c = { id: el.dataset.id, name: el.dataset.name, image: el.dataset.image, port: el.dataset.port, vol: el.dataset.vol, net: el.dataset.net, rt: el.dataset.rt, el: el };
+      crates[c.id] = c; order.push(c.id); note(c, c.rt); bindCrate(c);
+    });
+    var initial = order.map(function (id) { var c = crates[id]; return { name: c.name, image: c.image, port: c.port, vol: c.vol, net: c.net, rt: c.rt, rot: c.el.style.getPropertyValue('--rot') }; });
+    var initialCrates = order.map(function (id) { return crates[id].el.outerHTML; });
+    renderCounts();
+
+    /* filter */
+    var fbtns = $$('#filter button');
+    function setFilter(f, focus) {
+      app.setAttribute('data-f', f);
+      fbtns.forEach(function (b) { var on = b.dataset.f === f; b.setAttribute('aria-checked', on); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
+      applyFilter();
+    }
+    fbtns.forEach(function (b, i) {
+      b.tabIndex = i === 0 ? 0 : -1;
+      b.addEventListener('click', function () { setFilter(b.dataset.f); });
+      b.addEventListener('keydown', function (e) {
+        var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
+        if (!d) return; e.preventDefault(); setFilter(fbtns[(i + d + fbtns.length) % fbtns.length].dataset.f, true);
+      });
+    });
+
+    /* run panel */
+    var panel = $('#runpanel'), runbtn = $('#runbtn');
+    function togglePanel(open) { panel.classList.toggle('open', open); runbtn.setAttribute('aria-expanded', open); if (open) { var f = $('input:checked', panel); if (f) f.focus(); } }
+    runbtn.addEventListener('click', function () { togglePanel(!panel.classList.contains('open')); });
+    $('#cancelbtn').addEventListener('click', function () { togglePanel(false); runbtn.focus(); });
+    $('#resetbtn').addEventListener('click', reset);
+
+    function setBusy(b) {
+      busy = b; $$('button, input', panel).forEach(function (x) { x.disabled = b; });
+      runbtn.disabled = b; $('#resetbtn').disabled = b;
+    }
+    function uniq(base) { var n = base, i = 1; while (crates[n]) { i++; n = base + '-' + i; } return n; }
+
+    var STEPS = ['Resolving image', 'Pulling layer 1 of 3', 'Pulling layer 2 of 3', 'Pulling layer 3 of 3', 'Starting container'];
+    function scaffoldSVG() {
+      return '<svg viewBox="0 0 96 56" aria-hidden="true">' +
+        '<path class="s" pathLength="1" data-n="1" d="M10 54V6"/><path class="s" pathLength="1" data-n="1" d="M48 54V6"/><path class="s" pathLength="1" data-n="1" d="M86 54V6"/>' +
+        '<path class="s" pathLength="1" data-n="2" d="M4 40H92"/><path class="s" pathLength="1" data-n="3" d="M4 24H92"/><path class="s" pathLength="1" data-n="4" d="M10 40L48 24L86 40"/><path class="s" pathLength="1" data-n="5" d="M4 8H92"/></svg>';
+    }
+    function load(rt, text, ms) {
+      var q = quayEl[rt], card = $('.loadcard', q);
+      card.style.setProperty('--c', rt === 'docker' ? 'var(--docker-d)' : 'var(--podman)');
+      card.innerHTML = scaffoldSVG() + '<div><div class="l1"></div><div class="l2"></div><div class="bar"><i></i></div></div>';
+      card.classList.add('on'); card.setAttribute('aria-hidden', 'false');
+      var l1 = $('.l1', card), l2 = $('.l2', card), bar = $('.bar i', card), paths = $$('.s', card);
+      l1.textContent = text;
+      var i = 0, per = ms / STEPS.length;
+      function step() {
+        if (i >= STEPS.length) { return Promise.resolve(); }
+        l2.textContent = STEPS[i] + (rt === 'podman' ? ' (podman)' : ' (docker)');
+        paths.forEach(function (p) { if (+p.getAttribute('data-n') <= i + 1) p.classList.add('on'); });
+        bar.style.width = ((i + 1) / STEPS.length * 100) + '%';
+        i++; return wait(per).then(step);
+      }
+      return step().then(function () { card.classList.remove('on'); card.setAttribute('aria-hidden', 'true'); });
+    }
+    function pop(rt, text, cls, ttl) {
+      var s = $('.stamp.pop', quayEl[rt]);
+      s.className = 'stamp pop ' + cls; s.textContent = text; s.style.setProperty('--sr', (cls === 'coral' ? '-9deg' : '6deg'));
+      void s.offsetWidth; s.classList.add('show');
+      timers.push(setTimeout(function () { s.classList.remove('show'); s.style.opacity = 0; }, ttl || 3200));
+    }
+    function run(key, rt) {
+      if (busy) return Promise.resolve();
+      var p = PRESETS[key]; setBusy(true);
+      if (order.length >= 10) { log('bad', 'Both quays are full. Reset the board to start over.'); setBusy(false); return Promise.resolve(); }
+      var name = uniq(p.base);
+      var spec = { name: name, image: p.image, port: p.port, vol: p.vol, net: p.net, arch: p.arch };
+      log('', rt + ': run ' + p.image + ' as ' + name);
+      var flow;
+      if (rt === 'podman' && p.arch === 'amd64') {
+        flow = load('podman', 'Podman: ' + p.image, 1500).then(function () {
+          pop('podman', 'ARCH MISMATCH', 'coral', 3400);
+          log('bad', 'podman: exec format error. Image is linux/amd64, host is linux/arm64.');
+          return wait(1900);
+        }).then(function () {
+          log('fb', 'Dockman retries ' + name + ' on Docker (Rosetta).');
+          return load('docker', 'Docker retry: ' + p.image, 1500);
+        }).then(function () {
+          var c = addCrate(spec, 'docker');
+          pop('docker', 'CLEARED', 'green', 3000);
+          log('ok', 'docker: ' + name + ' is running after the fallback.');
+          return c;
+        });
+      } else {
+        flow = load(rt, rt[0].toUpperCase() + rt.slice(1) + ': ' + p.image, 1500).then(function () {
+          addCrate(spec, rt); pop(rt, 'CLEARED', 'green', 2600);
+          log('ok', rt + ': ' + name + ' is running' + (p.arch === 'amd64' ? ' (x86_64 under emulation)' : '') + '.');
+        });
+      }
+      return flow.then(function () { setBusy(false); });
+    }
+    panel.addEventListener('submit', function (e) {
+      e.preventDefault();
+      run($('input[name="preset"]:checked', panel).value, $('input[name="rt"]:checked', panel).value);
+    });
+    $('#demobtn').addEventListener('click', function () {
+      $('input[name="preset"][value="legacy"]', panel).checked = true;
+      $('input[name="rt"][value="podman"]', panel).checked = true;
+      run('legacy', 'podman');
+    });
+
+    function reset() {
+      timers.forEach(clearTimeout); timers = [];
+      ['docker', 'podman'].forEach(function (rt) { berth[rt].innerHTML = ''; var l = $('.loadcard', quayEl[rt]); l.classList.remove('on'); $('.stamp.pop', quayEl[rt]).classList.remove('show'); });
+      crates = {}; order = []; nameN = {};
+      cache = { docker: { img: {}, vol: {}, net: {} }, podman: { img: {}, vol: {}, net: {} } };
+      initial.forEach(function (s, i) {
+        var tmp = document.createElement('div'); tmp.innerHTML = initialCrates[i];
+        var el = tmp.firstChild; el.className = 'crate'; el.removeAttribute('aria-label'); berth[s.rt].appendChild(el);
+        var c = { id: el.dataset.id, name: s.name, image: s.image, port: s.port, vol: s.vol, net: s.net, rt: s.rt, el: el };
+        crates[c.id] = c; order.push(c.id); note(c, c.rt); bindCrate(c);
+      });
+      logEl.innerHTML = ''; log('', 'Board reset. Five sample crates on two quays.');
+      setBusy(false); setFilter('both'); applyFilter();
+    }
+    setFilter('both');
+  })();
+
+  /* ================= SCROLL ENGINE ================= */
+  var scene = $('#manifest'), lines = $$('#lines .line'), N = lines.length;
+  var chartEl = $('#chartbox'), edges = $$('#edges .rt-path'), masks = $$('#chartsvg .mk'), nodes = $$('#chartsvg .nd'), ships = $$('#ships .sh');
+  var wfEl = $('#waterfall'), wfRows = [];
+  var pinMQ = window.matchMedia('(min-width: 900px) and (min-height: 640px)');
+  var pinned = false, curIdx = -1, dirty = true, inView = { chart: false, wf: false, scene: false };
+
+  /* waterfall build */
+  var LAYERS = [
+    ['FROM node:20-alpine', 0, 4.0, 1, '4.0s'], ['WORKDIR /app', 4.0, .3, 1, '0.0s'], ['COPY package*.json ./', 4.3, .4, 1, '0.0s'],
+    ['RUN npm ci', 4.7, 14.6, 0, '14.6s'], ['COPY . .', 19.3, .9, 0, '0.9s'], ['RUN npm run build', 20.2, 9.5, 0, '9.5s'], ['CMD ["node","dist/server.js"]', 29.7, .3, 0, '0.0s']
+  ];
+  var wf = $('#wf');
+  LAYERS.forEach(function (l) {
+    var r = document.createElement('div'); r.className = 'wrow';
+    var nm = document.createElement('div'); nm.className = 'nm';
+    var a = document.createElement('span'); a.textContent = l[0]; var b = document.createElement('span'); b.textContent = (l[3] ? 'cached' : l[4]);
+    nm.appendChild(a); nm.appendChild(b);
+    var tr = document.createElement('div'); tr.className = 'track';
+    var cg = document.createElement('div'); cg.className = 'cargo' + (l[3] ? ' cached' : '');
+    cg.style.setProperty('--s', (l[1] / 30 * 100) + '%'); cg.style.setProperty('--w', (l[2] / 30 * 100) + '%');
+    tr.appendChild(cg); r.appendChild(nm); r.appendChild(tr); wf.appendChild(r); wfRows.push({ el: r, hit: false });
+  });
+
+  function setPin(on) {
+    pinned = on; scene.classList.toggle('pinned', on);
+    if (!on) { lines.forEach(function (li) { li.classList.remove('on', 'past', 'cleared'); }); curIdx = -1; }
+    dirty = true;
+  }
+  function evalPin() { setPin(root.classList.contains('js') && !reduce && pinMQ.matches); }
+  if (pinMQ.addEventListener) pinMQ.addEventListener('change', evalPin);
+  evalPin();
+
+  var sceneIO = 'IntersectionObserver' in window ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      var k = e.target === scene ? 'scene' : e.target === chartEl ? 'chart' : 'wf';
+      inView[k] = e.isIntersecting; dirty = true;
+    });
+  }, { rootMargin: '10% 0px 10% 0px' }) : null;
+  if (sceneIO) { sceneIO.observe(scene); sceneIO.observe(chartEl); sceneIO.observe(wfEl); } else { inView.scene = inView.chart = inView.wf = true; }
+
+  /* chart prep */
+  var lens = masks.map(function (m) { return m.getTotalLength ? m.getTotalLength() : 300; });
+  var drawable = root.classList.contains('js') && !reduce;
+  if (drawable) { masks.forEach(function (m, i) { m.style.strokeDasharray = lens[i]; m.style.strokeDashoffset = lens[i]; }); nodes.forEach(function (n) { n.style.opacity = 0; }); }
+  var shipHome = [0, 1, 2, 5];  /* edge index each ship rides */
+
+  function updateScene() {
+    var rect = scene.getBoundingClientRect(), total = rect.height - window.innerHeight;
+    var p = clamp(-rect.top / total, 0, 1), f = p * N, idx = clamp(Math.floor(f), 0, N - 1), frac = f - idx;
+    if (idx !== curIdx || true) {
+      lines.forEach(function (li, i) {
+        li.classList.toggle('on', i === idx);
+        li.classList.toggle('past', i < idx);
+        li.classList.toggle('cleared', i < idx || (i === idx && frac > 0.45));
+      });
+      curIdx = idx;
+    }
+  }
+  function updateChart(t) {
+    var r = chartEl.getBoundingClientRect(), vh = window.innerHeight;
+    var p = drawable ? clamp((vh * 0.92 - r.top) / (r.height * 0.85), 0, 1) : 1;
+    edges.forEach(function (e, i) {
+      var st = i * 0.11, k = clamp((p - st) / 0.32, 0, 1);
+      if (drawable) masks[i].style.strokeDashoffset = lens[i] * (1 - k);
+      e._k = k;
+    });
+    if (drawable) nodes.forEach(function (n) { n.style.opacity = p >= +n.getAttribute('data-t') + 0.05 ? 1 : 0; });
+    ships.forEach(function (s, i) {
+      var e = edges[shipHome[i]], k = e._k || 0;
+      if (k <= 0.02) { s.setAttribute('opacity', 0); return; }
+      var f = k < 1 ? k : (reduce ? 0.5 : ((t / 5200 + i * 0.27) % 1));
+      var L = lens[shipHome[i]], pt = masks[shipHome[i]].getPointAtLength(L * f);
+      s.setAttribute('opacity', 1); s.setAttribute('transform', 'translate(' + pt.x.toFixed(1) + ' ' + (pt.y - 10).toFixed(1) + ')');
+    });
+  }
+  function updateWF() {
+    var r = wfEl.getBoundingClientRect(), vh = window.innerHeight;
+    var p = reduce || !root.classList.contains('js') ? 1 : clamp((vh * 0.9 - r.top) / (r.height * 0.9), 0, 1);
+    var n = wfRows.length;
+    wfRows.forEach(function (row, i) {
+      var k = clamp((p * (n + 1) - i) / 1.1, 0, 1);
+      var e = 1 - Math.pow(1 - k, 3);
+      row.el.style.setProperty('--k', e.toFixed(3));
+      if (k >= 1 && !row.hit) { row.hit = true; if (!reduce && p < 1) { row.el.classList.add('thud'); setTimeout(function () { row.el.classList.remove('thud'); }, 380); } }
+      if (k < .2) row.hit = false;
+    });
+  }
+  /* parallax */
+  var pars = $$('[data-par]');
+  function updatePar() { if (reduce) return; var y = window.scrollY; if (y > 1400) return; pars.forEach(function (n) { n.style.transform = 'translateY(' + (y * parseFloat(n.getAttribute('data-par'))).toFixed(1) + 'px)'; }); }
+
+  function frame(t) {
+    if (pinned && inView.scene) updateScene();
+    if (inView.chart) updateChart(t); else if (dirty) updateChart(t);
+    if (inView.wf || dirty) updateWF();
+    updatePar();
+    dirty = false;
+    requestAnimationFrame(frame);
+  }
+  window.addEventListener('scroll', function () { dirty = true; }, { passive: true });
+  window.addEventListener('resize', function () { dirty = true; }, { passive: true });
+  requestAnimationFrame(frame);
+  if (reduce) { updateChart(0); updateWF(); }
+
+  /* scene line clicks jump to their scroll slot */
+  lines.forEach(function (li, i) {
+    $('.lb', li).addEventListener('click', function () {
+      if (!pinned) return;
+      var top = scene.getBoundingClientRect().top + window.scrollY, total = scene.offsetHeight - window.innerHeight;
+      window.scrollTo({ top: top + total * ((i + 0.55) / N), behavior: reduce ? 'auto' : 'smooth' });
+    });
+  });
+
+  /* lightbox */
+  var lb = $('#lb'), lbimg = $('#lbimg'), lbcap = $('#lbcap'), prints = $$('#pinboard button.print'), li = 0, opener = null;
+  function show(i) {
+    li = (i + prints.length) % prints.length;
+    var im = $('img', prints[li]); lbimg.src = im.getAttribute('src'); lbimg.alt = im.alt; lbimg.height = im.getAttribute('height');
+    lbcap.textContent = prints[li].getAttribute('data-cap') + '  (' + (li + 1) + ' of ' + prints.length + ')';
+  }
+  prints.forEach(function (b, i) { b.addEventListener('click', function () { opener = b; show(i); if (lb.showModal) lb.showModal(); else window.open(lbimg.src); }); });
+  $('#lbprev').addEventListener('click', function () { show(li - 1); });
+  $('#lbnext').addEventListener('click', function () { show(li + 1); });
+  $('#lbclose').addEventListener('click', function () { lb.close(); });
+  lb.addEventListener('click', function (e) { if (e.target === lb) lb.close(); });
+  lb.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { show(li + 1); } else if (e.key === 'ArrowLeft') { show(li - 1); } });
+  lb.addEventListener('close', function () { if (opener) opener.focus(); });
+})();
+</script>
+</body>
+</html>
