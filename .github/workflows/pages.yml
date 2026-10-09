@@ -1,11 +1,12 @@
 name: Website
 
-# Publishes the project site at https://abyabyss.github.io/dockman.
+# Publishes the project site in site/ to https://abyabyss.github.io/dockman.
 # In the repository settings, Pages → Source must be "GitHub Actions".
 
 on:
   push:
     branches: [main]
+    paths: [site/**, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -22,15 +23,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx vite build --base=/dockman/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
 
   deploy:
     needs: build
