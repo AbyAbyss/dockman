@@ -139,8 +139,11 @@ release: ## Bump version, tag and push to trigger the release build (VERSION=x.y
 	@npm version --no-git-tag-version --allow-same-version "$(VERSION)" >/dev/null
 	@perl -i -pe 's/^version = ".*"/version = "$(VERSION)"/' src-tauri/Cargo.toml
 	@perl -i -pe 's/"version": "[^"]*"/"version": "$(VERSION)"/' src-tauri/tauri.conf.json
+	@# Keep Cargo.lock's own entry in step, or the next build dirties the tree.
+	@cargo update --workspace --offline --manifest-path src-tauri/Cargo.toml 2>/dev/null \
+		|| cargo update --workspace --manifest-path src-tauri/Cargo.toml
 	@echo "==> Committing and tagging v$(VERSION)"
-	git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+	git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
 	@git diff --cached --quiet || git commit -m "Release v$(VERSION)"
 	git tag -a "v$(VERSION)" -m "Dockman v$(VERSION)"
 	@echo "==> Pushing commit and tag"
