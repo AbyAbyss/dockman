@@ -10,7 +10,7 @@ import { useAppStore } from '@/store/appStore';
 import { useImages } from '@/hooks/useData';
 import { ImageCommands, failureOf } from '@/lib/commands';
 import { RUNTIMES } from '@/data/seed';
-import type { ImageItem, RuntimeName } from '@/types';
+import { scopeOf, type ImageItem, type RuntimeName } from '@/types';
 
 /** Disk allocated to the image store. No backend command reports this yet. */
 const ALLOCATED_MB = 4096;
@@ -151,7 +151,7 @@ export default function Images() {
 
   const removeImage = (img: ImageItem) => {
     if (imagesRes.live) {
-      ImageCommands.remove(img.rt, img.id)
+      ImageCommands.remove(scopeOf(img), img.id)
         .then(() => imagesRes.refetch())
         .catch(reportError);
     }
@@ -160,7 +160,7 @@ export default function Images() {
 
   const pushImage = () => {
     if (!detail) return;
-    ImageCommands.push(detail.rt, `${detail.name}:${detail.tag}`)
+    ImageCommands.push(scopeOf(detail), `${detail.name}:${detail.tag}`)
       .then(() => reportOk(`Pushed ${detail.name}:${detail.tag}`))
       .catch(reportError);
   };
@@ -183,7 +183,7 @@ export default function Images() {
 
   const applyTag = () => {
     if (!detail || !tagValue.trim()) return;
-    ImageCommands.tag(detail.rt, `${detail.name}:${detail.tag}`, tagValue.trim())
+    ImageCommands.tag(scopeOf(detail), `${detail.name}:${detail.tag}`, tagValue.trim())
       .then(() => imagesRes.refetch())
       .catch(reportError);
     setTagging(false);
@@ -286,7 +286,7 @@ export default function Images() {
                   <span className="img-name mono">{img.name}</span>
                   <span
                     className="ctr-rt"
-                    title={img.rt}
+                    title={img.root ? `${img.rt} · root store` : img.rt}
                     style={{ background: RUNTIMES[img.rt]?.accent }}
                   />
                 </div>

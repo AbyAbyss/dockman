@@ -118,12 +118,20 @@ pub struct RunResult {
     pub id: String,
     pub emulated: bool,
     pub platform: Option<String>,
+    /// True when the container runs as root inside the podman VM.
+    pub as_root: bool,
     pub problem: Option<Problem>,
 }
 
 /// A detached container that exits non-zero within a few seconds of starting
 /// usually died in its entrypoint. Fetch its last log lines and diagnose them.
-fn early_exit_problem(bin: &str, runtime: &str, image: &str, id: &str) -> Option<Problem> {
+fn early_exit_problem(
+    bin: &str,
+    runtime: &str,
+    as_root: bool,
+    image: &str,
+    id: &str,
+) -> Option<Problem> {
     for wait_ms in [1000u64, 1500, 2500] {
         std::thread::sleep(std::time::Duration::from_millis(wait_ms));
         let state = super::run(
@@ -143,6 +151,7 @@ fn early_exit_problem(bin: &str, runtime: &str, image: &str, id: &str) -> Option
         let logs = super::run_capture(bin, &["logs", "--tail", "40", id]).ok()?;
         let text = format!("{}\n{}", logs.stdout, logs.stderr);
         let rootless = runtime == "podman"
+            && !as_root
             && super::run(bin, &["machine", "inspect", "--format", "{{.Rootful}}"])
                 .map(|s| s.trim() != "true")
                 .unwrap_or(false);
@@ -172,8 +181,13 @@ pub async fn run_container(
     cpus: Option<String>,
     storage_size: Option<String>,
     platform: Option<String>,
+    as_root: bool,
 ) -> Result<RunResult, Failure> {
-    let bin = super::resolve(&runtime)?;
+    // Root inside the podman VM, for this container only: the machine's
+    // `-root` connection, via the `podman-root` wrapper. Nothing on the Mac
+    // runs as root, and every other container stays rootless.
+    let as_root = as_root && runtime == "podman";
+    let bin = super::resolve(if as_root { "podman-root" } else { &runtime })?;
     if runtime == "docker" {
         // Registry pulls need the credential helper the standalone CLI omits.
         let _ = super::ensure_docker_helpers();
@@ -257,11 +271,11 @@ pub async fn run_container(
 
     let id = out.stdout.trim().to_string();
     let problem = if detach {
-        early_exit_problem(&bin, &runtime, &image, &id)
+        early_exit_problem(&bin, &runtime, as_root, &image, &id)
     } else {
         None
     };
-    Ok(RunResult { id, emulated, platform, problem })
+    Ok(RunResult { id, emulated, platform, as_root, problem })
 }
 
 /// Update a container's memory / CPU limits via `{runtime} update`. These can

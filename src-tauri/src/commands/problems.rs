@@ -29,10 +29,35 @@ pub struct Problem {
     pub engine: String,
     pub container: Option<String>,
     pub image: Option<String>,
+    /// Compose file, when the problem belongs to a stack.
+    pub file: Option<String>,
     pub message: String,
     pub cause: String,
     pub fixes: Vec<Fix>,
     pub log_tail: String,
+}
+
+/// The default fix for a rootless failure: run that one container (or stack)
+/// as root inside the VM, leaving the machine and everything else rootless.
+fn root_fixes(image: Option<&str>) -> Vec<Fix> {
+    let conn = super::rootvm::connection()
+        .map(|c| c.name)
+        .unwrap_or_else(|_| "podman-machine-default-root".to_string());
+    vec![
+        fix(
+            "Run again as root in the VM",
+            Some("retry_as_root"),
+            Some(&format!(
+                "podman --connection {conn} run … {}",
+                image.unwrap_or("<image>")
+            )),
+        ),
+        fix(
+            "Compose: use the root socket",
+            None,
+            Some("Dockman forwards it; from a terminal: DOCKER_HOST=unix://~/.local/libexec/dockman/podman-root.sock docker-compose up -d"),
+        ),
+    ]
 }
 
 /// A command failure that may carry a diagnosis. Returned as the `Err` of
@@ -105,6 +130,7 @@ pub fn diagnose(
         engine: engine.to_string(),
         container: container.map(String::from),
         image: image.map(String::from),
+        file: None,
         message,
         cause,
         fixes,
@@ -146,12 +172,9 @@ pub fn diagnose(
             "error",
             "Rootless podman can't give this container the cgroup controllers it asked for."
                 .to_string(),
-            "The podman machine runs containers as a normal user, and the user session only gets the cpu, io, memory and pids controllers. Images that set up their own cgroups (sandboxes, code runners) need the full set, which only a rootful machine has."
+            "The podman machine runs containers as a normal user, and the user session only gets the cpu, io, memory and pids controllers. Images that set up their own cgroups (sandboxes, code runners) need the full set, which root inside the VM has."
                 .to_string(),
-            vec![
-                fix("Switch podman to rootful", Some("set_rootful"), Some("podman machine set --rootful")),
-                fix("Open Engines", Some("open_engines"), None),
-            ],
+            root_fixes(image),
         ));
     }
 
@@ -164,10 +187,11 @@ pub fn diagnose(
             "error",
             "Rootless podman can't publish ports below 1024.".to_string(),
             "Only root may bind privileged ports inside the machine.".to_string(),
-            vec![
-                fix("Switch podman to rootful", Some("set_rootful"), Some("podman machine set --rootful")),
-                fix("Use a host port above 1024", None, Some("-p 8080:80")),
-            ],
+            {
+                let mut f = root_fixes(image);
+                f.push(fix("Or use a host port above 1024", None, Some("-p 8080:80")));
+                f
+            },
         ));
     }
 
@@ -227,7 +251,7 @@ mod tests {
         assert!(diagnose("podman", Some("piston"), Some("abc"), PISTON_LOG).is_none());
         let p = diagnose_exit("podman", true, Some("piston"), Some("abc"), PISTON_LOG).unwrap();
         assert_eq!(p.code, "engine.rootless_cgroups");
-        assert_eq!(p.fixes[0].action.as_deref(), Some("set_rootful"));
+        assert_eq!(p.fixes[0].action.as_deref(), Some("retry_as_root"));
         // A rootful machine, or docker, gets no such diagnosis.
         assert!(diagnose_exit("podman", false, None, None, PISTON_LOG).is_none());
         assert!(diagnose_exit("docker", true, None, None, PISTON_LOG).is_none());
@@ -272,14 +296,12 @@ pub fn diagnose_exit(
             engine: engine.into(),
             container: container.map(String::from),
             image: image.map(String::from),
+            file: None,
             message: "The container died right after starting on a rootless podman machine."
                 .into(),
-            cause: "Its startup script failed on a write or permission error. On a rootless machine the usual cause is a missing cgroup controller (cpuset) or a privileged operation only root may do. Docker Desktop and OrbStack run rootful, which is why the same image works there."
+            cause: "Its startup script failed on a write or permission error. On a rootless machine the usual cause is a missing cgroup controller (cpuset) or a privileged operation only root may do. Docker Desktop and OrbStack always run as root inside their VM, which is why the same image works there. Running this one container as root inside the podman VM gives it the same thing, and nothing else changes."
                 .into(),
-            fixes: vec![
-                fix("Switch podman to rootful", Some("set_rootful"), Some("podman machine set --rootful")),
-                fix("Open Engines", Some("open_engines"), None),
-            ],
+            fixes: root_fixes(image),
             log_tail: tail(text),
         });
     }
@@ -315,6 +337,7 @@ pub async fn engine_problems(runtime: String) -> Result<Vec<Problem>, String> {
             engine: runtime.clone(),
             container: None,
             image: None,
+            file: None,
             message: "Rosetta isn't installed, so Intel (amd64) images run on slow QEMU emulation.".into(),
             cause: "Apple Silicon Macs don't ship Rosetta 2. Both engines can use it for much faster amd64 emulation. A podman machine created before Rosetta is installed has to be recreated to use it."
                 .into(),
@@ -334,6 +357,7 @@ pub async fn engine_problems(runtime: String) -> Result<Vec<Problem>, String> {
             engine: "docker".into(),
             container: None,
             image: None,
+            file: None,
             message: "docker commands go to the podman engine.".into(),
             cause: "/var/run/docker.sock is linked to the podman machine (podman-mac-helper), so both CLIs see the same containers. Dockman shows them once, under podman."
                 .into(),

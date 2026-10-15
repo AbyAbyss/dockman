@@ -3140,3 +3140,17 @@
   font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase;
   padding: 1px 7px; border-radius: 999px; background: var(--subtle); color: var(--dim);
 }
+
+/* ─── Root-in-the-VM markers and the inline "run again as root" offer ──── */
+.root-chip {
+  flex: none; padding: 1px 6px; border-radius: 999px;
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase;
+  background: color-mix(in oklab, var(--info) 16%, transparent); color: var(--info);
+}
+.rcm-retry {
+  display: flex; flex-direction: column; gap: 7px; align-items: flex-start;
+  padding: 11px 12px; border-radius: 9px;
+  background: rgba(224, 178, 101, 0.08); border: 0.5px solid rgba(224, 178, 101, 0.35);
+}
+.rcm-retry-msg { font-weight: 600; font-size: 11.5px; color: var(--text); }
+.rcm-retry-sub { font-size: 10.5px; line-height: 1.5; color: var(--dim); }

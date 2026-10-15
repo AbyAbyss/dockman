@@ -55,11 +55,14 @@ export function RunContainerModal({
   onClose,
   defaultRuntime,
   defaultImage = '',
+  defaultAsRoot = false,
 }: {
   onClose: () => void;
   defaultRuntime: RuntimeName;
   /** Pre-fill the image field — used when launching from the Images page. */
   defaultImage?: string;
+  /** Pre-tick "run as root in the VM" — used by a problem's fix. */
+  defaultAsRoot?: boolean;
 }) {
   const refresh = useAppStore((s) => s.refresh);
   const live = useAppStore((s) => s.live);
@@ -71,6 +74,10 @@ export function RunContainerModal({
   const [name, setName] = useState('');
   const [rt, setRt] = useState<RuntimeName>(defaultRuntime);
   const [platform, setPlatform] = useState<Platform>('');
+  const [asRoot, setAsRoot] = useState(defaultAsRoot);
+  /** Set when the container started and died for a rootless reason: the
+   *  modal stays open and offers to run it again as root in the VM. */
+  const [rootRetry, setRootRetry] = useState<{ id: string; message: string } | null>(null);
   const [ports, setPorts] = useState<Pair[]>([{ ...EMPTY }]);
   const [env, setEnv] = useState<Pair[]>([{ ...EMPTY }]);
   const [volumes, setVolumes] = useState<Pair[]>([{ ...EMPTY }]);
@@ -109,11 +116,14 @@ export function RunContainerModal({
     (p) => p.memory === memory && p.memorySwap === memorySwap && p.cpus === cpus,
   )?.label;
 
-  const launch = () => {
+  const launch = (overrideAsRoot?: boolean) => {
     if (!image.trim() || busy) return;
+    const runAsRoot = overrideAsRoot ?? asRoot;
     setError(null);
+    setRootRetry(null);
     setBusy(true);
     ContainerCommands.run(rt, {
+      asRoot: rt === 'podman' && runAsRoot,
       image: image.trim(),
       name: name.trim() || undefined,
       ports: ports.filter((p) => p.a && p.b).map((p) => `${p.a}:${p.b}`),
@@ -133,11 +143,22 @@ export function RunContainerModal({
         if (res.problem) {
           // Started, then died in its entrypoint — the diagnosis says why.
           addProblem(res.problem);
+          if (res.problem.fixes.some((f) => f.action === 'retry_as_root')) {
+            // The default fix: this one container as root inside the VM.
+            // Stay open so it is one click away.
+            setRootRetry({ id: res.id, message: res.problem.message });
+            setBusy(false);
+            return;
+          }
           setProblemsOpen(true);
-        } else if (res.emulated) {
-          reportOk(
-            `Started ${short} under ${(res.platform ?? 'foreign-arch').replace('linux/', '')} emulation`,
-          );
+        } else if (res.emulated || res.asRoot) {
+          const notes = [
+            res.emulated
+              ? `${(res.platform ?? 'foreign-arch').replace('linux/', '')} emulation`
+              : '',
+            res.asRoot ? 'root inside the VM' : '',
+          ].filter(Boolean);
+          reportOk(`Started ${short} · ${notes.join(' · ')}`);
         }
         onClose();
       })
@@ -393,9 +414,52 @@ export function RunContainerModal({
                 <span>Run detached (in the background)</span>
               </label>
 
+              {rt === 'podman' && (
+                <label
+                  className="rcm-check"
+                  title="Uses the machine's root connection for this container only. Nothing on the Mac runs as root, and every other container stays rootless."
+                >
+                  <input
+                    type="checkbox"
+                    checked={asRoot}
+                    onChange={(e) => setAsRoot(e.target.checked)}
+                  />
+                  <span>
+                    Run as root inside the VM{' '}
+                    <span className="rcm-opt">
+                      only for images that manage their own cgroups or bind ports below 1024
+                    </span>
+                  </span>
+                </label>
+              )}
+
               {!live && (
                 <div className="rcm-note">
                   Running containers requires the desktop app.
+                </div>
+              )}
+              {rootRetry && (
+                <div className="rcm-retry">
+                  <div className="rcm-retry-msg">{rootRetry.message}</div>
+                  <div className="rcm-retry-sub">
+                    Rootless podman only grants part of the cgroup controllers. Running
+                    this one container as root inside the VM gives it what Docker Desktop
+                    always gives. Nothing else changes.
+                  </div>
+                  <button
+                    type="button"
+                    className="action-btn primary"
+                    onClick={() => {
+                      ContainerCommands.remove('podman', rootRetry.id)
+                        .catch(() => undefined)
+                        .then(() => {
+                          setAsRoot(true);
+                          launch(true);
+                        });
+                    }}
+                  >
+                    <Glyph name="play" size={12} /> Run again as root in the VM
+                  </button>
                 </div>
               )}
               {error && <div className="rcm-error mono">{error}</div>}
@@ -408,7 +472,7 @@ export function RunContainerModal({
               <button
                 className="action-btn primary"
                 type="button"
-                onClick={launch}
+                onClick={() => launch()}
                 disabled={!image.trim()}
               >
                 <Glyph name="play" size={12} /> Run container

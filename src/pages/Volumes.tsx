@@ -183,7 +183,7 @@ export default function Volumes() {
                   <span className="vol-name mono">{v.name}</span>
                   <span
                     className="ctr-rt"
-                    title={v.rt}
+                    title={v.root ? `${v.rt} · root store` : v.rt}
                     style={{ background: RUNTIMES[v.rt]?.accent }}
                   />
                 </div>

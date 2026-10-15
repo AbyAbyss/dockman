@@ -608,6 +608,11 @@ export default function Containers() {
                         <span className={`ctr-dot st-${c.status}`} />
                         <span className="ctr-name">{c.name}</span>
                         <span className="ctr-id mono">{c.id}</span>
+                        {c.root && (
+                          <span className="root-chip" title="Runs as root inside the podman VM">
+                            root
+                          </span>
+                        )}
                         <span
                           className="ctr-rt"
                           title={c.rt}

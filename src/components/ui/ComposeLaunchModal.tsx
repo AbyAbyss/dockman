@@ -6,9 +6,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './Icon';
-import { ComposeCommands } from '@/lib/commands';
+import { COMPOSE_PROBLEM, ComposeCommands } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
-import type { RuntimeName } from '@/types';
+import { useAppStore } from '@/store/appStore';
+import type { Problem, RuntimeName, RuntimeScope } from '@/types';
 
 type SvcStatus =
   | 'pending'
@@ -63,23 +64,32 @@ export function ComposeLaunchModal({
   runtime,
   scale = [],
   title,
+  downFirst,
   onClose,
 }: {
   filePath: string;
-  runtime?: RuntimeName;
+  /** 'podman-root' brings the stack up as root inside the podman VM. */
+  runtime?: RuntimeScope;
   scale?: string[];
   title?: string;
+  /** Take the stack down on this scope first (a rootless stack being
+   *  re-launched as root still holds its ports). */
+  downFirst?: RuntimeScope;
   onClose: () => void;
 }) {
+  const addProblem = useAppStore((s) => s.addProblem);
   const [phase, setPhase] = useState<'probing' | 'running' | 'done'>('probing');
+  /** A service that died right after `up`, diagnosed by the backend. */
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [svcs, setSvcs] = useState<Svc[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [showLog, setShowLog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
-  // Capture the launch inputs once so the run effect can fire exactly once.
-  const launch = useRef({ filePath, runtime, scale });
+  // Capture the launch inputs once so the run effect fires once per attempt.
+  const launch = useRef({ filePath, runtime, scale, downFirst });
 
   const parts = filePath.split(/[/\\]/);
   const fileName = parts[parts.length - 1] || 'compose file';
@@ -99,21 +109,26 @@ export function ComposeLaunchModal({
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
 
-  // Probe → run → stream. Fires once for this launch.
+  // Probe → run → stream. Fires once per attempt.
   useEffect(() => {
-    const { filePath: fp, runtime: rt, scale: sc } = launch.current;
+    const { filePath: fp, runtime: rt, scale: sc, downFirst: df } = launch.current;
     let unOut: UnlistenFn | undefined;
     let unDone: UnlistenFn | undefined;
+    let unProblem: UnlistenFn | undefined;
     let cancelled = false;
 
     (async () => {
       // Find a runtime whose `compose` provider actually works — try the
-      // preferred one first, then fall back to the others.
+      // preferred one first, then fall back to the others. Root-in-the-VM
+      // is explicit and never a fallback.
       const all: RuntimeName[] = ['docker', 'podman'];
-      const order: RuntimeName[] = rt
-        ? [rt, ...all.filter((r) => r !== rt)]
-        : all;
-      let chosen: RuntimeName | undefined;
+      const order: RuntimeScope[] =
+        rt === 'podman-root'
+          ? ['podman-root']
+          : rt
+            ? [rt, ...all.filter((r) => r !== rt)]
+            : all;
+      let chosen: RuntimeScope | undefined;
       let services: string[] = [];
       let lastErr = '';
       for (const r of order) {
@@ -137,8 +152,26 @@ export function ComposeLaunchModal({
         return;
       }
 
+      if (df) {
+        // Clear the earlier (rootless) copy so ports and names are free.
+        await ComposeCommands.down(df, fp).catch(() => undefined);
+        if (cancelled) return;
+      }
+
       setSvcs(services.map((name) => ({ name, status: 'pending' as SvcStatus })));
       setPhase('running');
+
+      // A service that died right after starting, with its diagnosis.
+      unProblem = await listen<Problem>(COMPOSE_PROBLEM, (p) => {
+        if (cancelled) return;
+        addProblem(p);
+        setProblem(p);
+        setSvcs((prev) =>
+          prev.map((s) =>
+            p.container && mentions(p.container, s.name) ? { ...s, status: 'failed' } : s,
+          ),
+        );
+      });
 
       // Stream output → advance the matching service's status.
       unOut = await listen<string>('compose-output', (line) => {
@@ -185,8 +218,24 @@ export function ComposeLaunchModal({
       cancelled = true;
       unOut?.();
       unDone?.();
+      unProblem?.();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+
+  const canRetryAsRoot =
+    problem?.fixes.some((f) => f.action === 'retry_compose_as_root') ?? false;
+
+  const retryAsRoot = () => {
+    launch.current = { filePath, runtime: 'podman-root', scale, downFirst: 'podman' };
+    setProblem(null);
+    setError(null);
+    setOk(false);
+    setLog([]);
+    setSvcs([]);
+    setPhase('probing');
+    setAttempt((a) => a + 1);
+  };
 
   const done = svcs.filter((s) => s.status === 'running').length;
   const total = svcs.length;
@@ -249,6 +298,18 @@ export function ComposeLaunchModal({
                 ))}
               </div>
 
+              {problem && (
+                <div className="rcm-retry">
+                  <div className="rcm-retry-msg">{problem.message}</div>
+                  <div className="rcm-retry-sub">{problem.cause}</div>
+                  {canRetryAsRoot && (
+                    <button type="button" className="action-btn primary" onClick={retryAsRoot}>
+                      <Glyph name="play" size={12} /> Run this stack again as root in the VM
+                    </button>
+                  )}
+                </div>
+              )}
+
               <button
                 type="button"
                 className="clm-logtoggle"
@@ -275,12 +336,14 @@ export function ComposeLaunchModal({
         <footer className="modal-foot">
           {phase === 'done' ? (
             <>
-              <span className={`clm-result ${error || !ok ? 'is-bad' : 'is-ok'}`}>
+              <span className={`clm-result ${error || !ok || problem ? 'is-bad' : 'is-ok'}`}>
                 {error
                   ? 'Could not start'
-                  : ok
-                    ? 'Stack is up'
-                    : 'Finished with errors'}
+                  : problem
+                    ? 'A service failed'
+                    : ok
+                      ? 'Stack is up'
+                      : 'Finished with errors'}
               </span>
               <button className="action-btn primary" type="button" onClick={onClose}>
                 Done

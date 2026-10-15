@@ -6,6 +6,19 @@ export type RuntimeName = 'docker' | 'podman';
 /** Active runtime filter — 'all' shows both runtimes in a unified view. */
 export type RuntimeFilter = 'all' | RuntimeName;
 
+/** What a backend command is aimed at: a runtime, or podman's root
+ *  connection for objects that run as root inside the VM. */
+export type RuntimeScope = RuntimeName | 'podman-root';
+
+/** Objects that belong to a runtime and may live on podman's root side. */
+export interface Scoped {
+  rt: RuntimeName;
+  root?: boolean;
+}
+
+export const scopeOf = (x: Scoped): RuntimeScope =>
+  x.rt === 'podman' && x.root ? 'podman-root' : x.rt;
+
 export type ContainerStatus = 'running' | 'paused' | 'stopped';
 
 /** Container table status filter — 'all' plus each concrete status. */
@@ -29,6 +42,8 @@ export interface Container {
   arch?: string;
   /** True when the image's architecture differs from this Mac's. */
   emulated?: boolean;
+  /** True when the container runs as root inside the podman VM. */
+  root?: boolean;
 }
 
 // ─── Diagnosed problems ──────────────────────────────────────────────────────
@@ -50,6 +65,8 @@ export interface Problem {
   engine: RuntimeName;
   container?: string | null;
   image?: string | null;
+  /** Compose file, when the problem belongs to a stack. */
+  file?: string | null;
   message: string;
   cause: string;
   fixes: ProblemFix[];
@@ -74,6 +91,8 @@ export interface ImageItem {
   used: boolean;
   layers: number;
   pulls: number;
+  /** True when the image lives in podman's root store. */
+  root?: boolean;
 }
 
 export interface Volume {
@@ -85,6 +104,7 @@ export interface Volume {
   driver: string;
   attached: string;
   created: string;
+  root?: boolean;
 }
 
 export interface Network {
@@ -96,6 +116,7 @@ export interface Network {
   gateway: string;
   attached: number;
   ext: boolean;
+  root?: boolean;
 }
 
 export type ActivityKind = 'start' | 'stop' | 'pull' | 'build' | 'prune' | 'fallback';

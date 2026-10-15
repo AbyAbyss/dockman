@@ -31,7 +31,7 @@ failure modes behind "obscure images fail on podman, postgres/redis never do":
 | # | Failure | Cause | Docker's behaviour | Fix in Dockman |
 |---|---|---|---|---|
 | A | `podman run amd64/alpine` → `no image found in image index for architecture "arm64"` | Podman refuses to **pull** a manifest list with no host-arch variant unless `--platform` is given. The VM can run amd64 fine: `--platform linux/amd64` prints `x86_64`, and `qemu-x86_64` is registered in the machine. | dockerd pulls the amd64 variant, prints a platform warning, runs it under emulation. | Run/Pull/Build retry with `--platform` for the arch the image has, and label the container **emulated**. Compose shows the error plus the `platform:` hint. |
-| B | Piston (single-arch amd64 image) pulls with a warning, starts, then its entrypoint dies: `echo '+cpuset +cpu +io +memory +pids' > cgroup.subtree_control` → `No such file or directory` | **Rootless** podman only sees the controllers systemd delegates to the user session. VM root has `cpuset cpu io memory pids rdma misc dmem`; the user slice has `cpu io memory pids`. No `cpuset` → ENOENT → container exits before the API starts. Emulation worked: `uname -m` = `x86_64`, PID and NET namespaces OK. | dockerd runs as root in its VM, so every controller is there. OrbStack the same. | Keep podman's **rootless** default. When a container dies this way, diagnose it and offer **Switch podman to rootful** as the fix (`podman machine set --rootful`). Rootful means podman runs as root *inside the VM*, never on the Mac: no sudo, no admin password. *Expected* to fix Piston; the rootful run itself was not tested, so phase 0 must verify it. |
+| B | Piston (single-arch amd64 image) pulls with a warning, starts, then its entrypoint dies: `echo '+cpuset +cpu +io +memory +pids' > cgroup.subtree_control` → `No such file or directory` | **Rootless** podman only sees the controllers systemd delegates to the user session. VM root has `cpuset cpu io memory pids rdma misc dmem`; the user slice has `cpu io memory pids`. No `cpuset` → ENOENT → container exits before the API starts. Emulation worked: `uname -m` = `x86_64`, PID and NET namespaces OK. | dockerd runs as root in its VM, so every controller is there. OrbStack the same. | Keep podman's **rootless** default. When a container dies this way, diagnose it and offer **Run again as root in the VM** as the fix: the same machine's `-root` connection (`podman --connection <machine>-root run …`), for that one container only. Root here means root *inside the VM*, never on the Mac: no sudo, no admin password, and every other container stays rootless. **Verified 2026-10-15:** through the root connection Piston sees `cpuset`, starts, and answers on port 2000; the whole sandkit compose stack comes up the same way over a forwarded root socket; rootless containers untouched. |
 
 Not the cause, despite earlier notes in the sandkit README: the podman VM's
 data volume is mounted `rw,relatime,seclabel`, with no `nosuid`/`nodev`.
@@ -61,7 +61,7 @@ have to open a terminal, a browser or System Settings.
 | The app is **unsigned** (`release.yml`: "These builds are unsigned") | macOS blocks the first launch; the user has to find a workaround in System Settings or Terminal | Sign with a Developer ID and notarize in CI (**decision**: needs an Apple Developer account) |
 | Rosetta isn't installed on a fresh Apple Silicon Mac (this Mac too: `arch -x86_64 /usr/bin/true` fails) | Intel images run on slow QEMU emulation. Podman bakes `Rosetta: false` into a machine created while host Rosetta is missing, and only reads it at init. | Install Rosetta **before** any machine/VM is created. Prefer vfkit's `--device rosetta,...,install`, which uses the system prompt and needs no admin password; `softwareupdate --install-rosetta --agree-to-license` only if verified to work unprivileged. Needs macOS 13+. QEMU is the fallback. |
 | The app relies on `PATH` edits for some lookups | Fragile for new users | The app always uses absolute paths under `~/.dockman`. Adding to `PATH` is only an option, for the user's own terminal |
-| Podman machine is **rootless** (podman's default) | Images that need full cgroup controllers (Piston) die at startup; see failure B above | Keep the default. The failure is diagnosed and the fix offered then; the Engines card shows the mode and can switch it either way (`podman machine set --rootful=<bool>`, machine stopped). Nothing on the Mac runs as root in either mode. |
+| Podman machine is **rootless** (podman's default) | Images that need full cgroup controllers (Piston) die at startup; see failure B above | Keep the default. The failure is diagnosed and the fix is **per container or per stack**: the machine's root connection for `run`, and a Dockman-forwarded root socket for compose (`podman compose` always uses the rootless socket, whatever `--connection` says). The machine-wide switch stays on the Engines card but nothing steers users to it. Nothing on the Mac runs as root in any of this. |
 | Podman refuses manifest lists without a host-arch variant | Failure A above | `--platform` retry in Run / Pull / Build, emulated label |
 | `podman machine init` only draws its progress bar on a TTY | Streaming a pipe gives little or nothing | Run it under a pty, or poll the image cache size |
 | `~/.docker/cli-plugins` may already hold compose/buildx (it does on this Mac) | Duplicate downloads, wrong version used | Detect and skip; see **Pointing each CLI** for where plugins live |
@@ -325,7 +325,8 @@ running ──VM dies / Mac sleep breaks socket──▶ probe sees it ──▶
 | Operation | What the backend does |
 |---|---|
 | **install** | 1. Download the podman CLI → `~/.dockman/bin/podman`. 2. Shared helpers vfkit + gvproxy → `~/.dockman/bin` (skipped if present), registered via `helper_binaries_dir` in `~/.config/containers/containers.conf`. 3. Compose provider: `docker-compose` binary → `~/.dockman/bin` (the same file as the docker compose plugin, downloaded once), set as `compose_providers`; write `[machine] rosetta = true` if host Rosetta is installed. 4. `podman machine init dockman-podman --cpus --memory --disk-size` (rootless, podman's default; named machine, so the user's own `podman-machine-default` is never touched), run on a pty so its progress bar renders. 5. Start. 6. `podman run --rm hello-world` check. |
-| **set rootful** | Offered as the fix for `engine.rootless_cgroups` / `engine.rootless_port`, and as a switch on the Engines card. Engine must be stopped: `podman machine set --rootful=<bool> dockman-podman`, then start. The UI explains that it only changes which user runs podman inside the VM (nothing on the Mac runs as root), and that rootless and rootful containers/images/volumes are **separate stores**, so switching hides the other set until switched back. |
+| **run as root in the VM** | The default fix for `engine.rootless_cgroups` / `engine.rootless_port`, and a checkbox in the Run modal. `run` goes through a `podman-root` wrapper (`podman --connection <machine>-root`), so every existing command works unchanged. Lists read both connections and tag root objects with a "root" chip, so they are never hidden. Compose: `podman compose` ignores `--connection`, so Dockman forwards the VM's root socket over the machine's own SSH key to `~/.local/libexec/dockman/podman-root.sock` and drives the compose provider with `DOCKER_HOST`. A rootless `compose up` is checked a few seconds later for a service that died, and the stack is offered again as root. |
+| **set rootful** | Machine-wide switch on the Engines card only, either way. Engine must be stopped: `podman machine set --rootful=<bool>`, then start. The UI explains that it only changes which user runs podman inside the VM, and that rootless and rootful stores are **separate**. |
 | **start** | `podman machine start dockman-podman`. Wait until `podman --connection dockman-podman info` succeeds. |
 | **stop** | `podman machine stop dockman-podman`. |
 | **status** | `podman machine inspect dockman-podman` (`State`: running / stopped / starting), then `info` over the connection. |
@@ -404,8 +405,8 @@ model) is produced by three sources:
 |---|---|---|---|
 | `image.no_host_arch` | `no image found in image index for architecture` | "This image has no arm64 build." | **Run as amd64 (emulated)** → retry with `--platform`. Compose: show `platform: linux/amd64` to add to the service. |
 | `image.emulated` (info) | `image platform (linux/amd64) does not match` warning, or `--platform` used | "Running under emulation, expect it to be slower." | **Install Rosetta** if missing (faster emulation). |
-| `engine.rootless_cgroups` | container exits with `cgroup.subtree_control` / `cgroup.procs` write error, or `--privileged` + cgroup controller errors | "Rootless podman can't give this container the `cpuset` cgroup controller it asked for." | **Switch podman to rootful** (stops machine, `machine set --rootful`, starts, explains the separate stores). |
-| `engine.rootless_port` | `bind: permission denied` on a port < 1024 (rootless) | "Rootless podman can't publish ports below 1024." | **Switch to rootful**, or show the `net.ipv4.ip_unprivileged_port_start` sysctl. |
+| `engine.rootless_cgroups` | container exits with a cgroup write error; or, on a rootless machine, a quick non-zero exit with a write / permission error (Piston's log says only `echo: write error`) | "Rootless podman can't give this container the cgroup controllers it asked for." | **Run again as root in the VM** (Run modal: remove the dead container, re-run on the root connection; compose: down the rootless stack, up through the root socket). |
+| `engine.rootless_port` | `bind: permission denied` on a port < 1024 (rootless) | "Rootless podman can't publish ports below 1024." | **Run again as root in the VM**, or use a host port above 1024. |
 | `engine.rosetta_missing` | host Rosetta absent on Apple Silicon | "Rosetta isn't installed; Intel images use slow QEMU." | **Install Rosetta** (system prompt, no password). Podman: note that the machine must be recreated to use it. |
 | `engine.shared_socket` | `docker_served_by_podman()` | "docker commands in your terminal go to podman." | Show `podman-mac-helper uninstall` (needs sudo; not run by the app). |
 | `engine.plugins_missing` | `docker: 'compose' is not a docker command` | "docker compose / buildx plugin missing." | **Install plugins**. |
@@ -452,6 +453,8 @@ Extra markers, shown together with the state:
 - **`vm.rootful`** → "rootful" / "rootless" chip on the podman card with a
   switch either way. Rootless is not flagged as a problem on its own; the
   `engine.rootless_cgroups` card appears only when a container fails for it.
+- **`root` on a container / image / volume / network** → "root" chip: the
+  object lives on podman's root connection (root inside the VM).
 - **`problems`** → warning icon with a count on the engine card and on the
   affected container/image row; status bar badge; Problems panel.
 
@@ -474,11 +477,16 @@ Each phase ends with a check run on a real Mac.
 
 0. **Fix the podman story first (the smallest phase, the most value).**
    *Status 2026-10-15: implemented on the default machine (not yet a named
-   `dockman-podman`): new machines stay rootless, a rootless/rootful switch
-   on the Engines page, `--platform` retry in Run and Pull, the emulated row
-   label, `commands/problems.rs` with the matcher, the engine probes and the
-   Problems panel. Matchers are unit-tested against the real error text; the
-   UI has not yet been exercised in the running app.*
+   `dockman-podman`): new machines stay rootless; per-container root in the
+   VM (`commands/rootvm.rs`: the `podman-root` wrapper and the SSH-forwarded
+   root socket for compose); "run again as root" as the default fix in the
+   Run modal, the compose launcher and the Problems panel; root chips on
+   rows; a rootless/rootful machine switch on the Engines page; `--platform`
+   retry in Run and Pull; the emulated row label; `commands/problems.rs` with
+   the matcher, the engine probes and the Problems panel. Matchers and
+   parsers are unit-tested against the real output; the mechanism (root
+   connection for run, forwarded socket for compose) was verified by hand
+   with Piston; the UI has not yet been exercised in the running app.*
    `dockman-podman` created rootless with the rootful switch offered on
    failure; `--platform` retry in Run / Pull / Build; the `Problem` type,
    the output matcher and the first five catalogue entries
@@ -541,13 +549,15 @@ Each phase ends with a check run on a real Mac.
    can't cover the very first launch.
 6. **Linux hosts:** no VM is needed there; use native `dockerd` / podman.
    Out of scope until macOS works.
-7. ~~**Rootful by default for `dockman-podman`**~~ **Resolved: no.** Keep
-   podman's rootless default; most images are fine with it and developers
-   should not get the wider mode unless something needs it. When an image
-   does (Piston), the failure is diagnosed and the switch is offered as the
-   fix. dockerd and OrbStack are always rootful inside their VMs, so a user
-   who switches gets nothing Docker Desktop doesn't already have. Either way
-   nothing on the Mac runs as root and no admin password is needed.
+7. ~~**Rootful by default for `dockman-podman`**~~ **Resolved: no, and the
+   fix is per container.** Keep podman's rootless default; most images are
+   fine with it and developers should not get the wider mode for everything
+   because one image needs it. When an image does (Piston), the failure is
+   diagnosed and that one container (or stack) is run again as root inside
+   the VM through the machine's root connection. dockerd and OrbStack are
+   always root inside their VMs, so this gives nothing Docker Desktop doesn't
+   already give. Nothing on the Mac runs as root and no admin password is
+   needed. Verified end to end on 2026-10-15.
 8. **Minimum macOS 13** (Rosetta in VMs). Older Macs could run without
    Rosetta on QEMU only; decide whether to support that or refuse to install.
 9. **Is the Docker VM worth it before the podman work ships?** Phase 0 alone

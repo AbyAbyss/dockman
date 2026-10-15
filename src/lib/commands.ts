@@ -19,6 +19,7 @@ import type {
   Problem,
   RuntimeFilter,
   RuntimeName,
+  RuntimeScope,
   Volume,
 } from '@/types';
 
@@ -49,6 +50,8 @@ export interface RunResult {
   id: string;
   emulated: boolean;
   platform: string | null;
+  /** True when the container runs as root inside the podman VM. */
+  asRoot: boolean;
   /** Set when a detached container died right after starting and was diagnosed. */
   problem: Problem | null;
 }
@@ -104,6 +107,9 @@ export interface RunContainerConfig {
   /** Force a platform (`linux/amd64`); omitted = the runtime's default, with
    *  an automatic emulated retry when the image has no host-arch build. */
   platform?: string;
+  /** Podman only: run this one container as root inside the VM (the
+   *  machine's `-root` connection). Nothing on the Mac runs as root. */
+  asRoot?: boolean;
 }
 
 export interface NewBuildConfig {
@@ -118,14 +124,21 @@ export interface NewBuildConfig {
   pushOnSuccess: boolean;
 }
 
-function runtimesFor(filter: RuntimeFilter): RuntimeName[] {
-  return filter === 'all' ? ['docker', 'podman'] : [filter];
+/** Scopes a filter covers. Podman's root side is listed with podman, so
+ *  containers run as root inside the VM are never hidden. */
+function runtimesFor(filter: RuntimeFilter): RuntimeScope[] {
+  if (filter === 'all') return ['docker', 'podman', 'podman-root'];
+  if (filter === 'podman') return ['podman', 'podman-root'];
+  return [filter];
 }
+
+/** The runtime a scope belongs to. */
+export const baseRt = (s: RuntimeScope): RuntimeName => (s === 'podman-root' ? 'podman' : s);
 
 /** Run a per-runtime fetch across the active filter, tolerating a missing runtime. */
 async function fanOut<T>(
   filter: RuntimeFilter,
-  fn: (rt: RuntimeName) => Promise<T[]>,
+  fn: (rt: RuntimeScope) => Promise<T[]>,
 ): Promise<T[]> {
   const lists = await Promise.all(
     runtimesFor(filter).map(async (rt) => {
@@ -166,6 +179,8 @@ export const execOutputEvent = (id: string) => `exec-output-${id}`;
 export const buildOutputEvent = (id: string) => `build-output-${id}`;
 export const BUILDS_CHANGED = 'builds-changed';
 export const DOWNLOAD_PROGRESS = 'download-progress';
+/** A diagnosed problem found after a compose up (payload: `Problem`). */
+export const COMPOSE_PROBLEM = 'compose-problem';
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
@@ -200,35 +215,35 @@ export const ContainerCommands = {
   list: async (filter: RuntimeFilter): Promise<Container[]> => {
     const all = await fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_containers', { runtime: rt, all: true });
-      return raw.map((r) => parseContainer(rt, r));
+      return raw.map((r) => ({ ...parseContainer(baseRt(rt), r), root: rt === 'podman-root' }));
     });
     return dedupeBy(all, (c) => c.id);
   },
-  start: (rt: RuntimeName, id: string) =>
+  start: (rt: RuntimeScope, id: string) =>
     invoke<void>('start_container', { runtime: rt, id }),
-  stop: (rt: RuntimeName, id: string) =>
+  stop: (rt: RuntimeScope, id: string) =>
     invoke<void>('stop_container', { runtime: rt, id }),
-  restart: (rt: RuntimeName, id: string) =>
+  restart: (rt: RuntimeScope, id: string) =>
     invoke<void>('restart_container', { runtime: rt, id }),
-  pause: (rt: RuntimeName, id: string) =>
+  pause: (rt: RuntimeScope, id: string) =>
     invoke<void>('pause_container', { runtime: rt, id }),
-  unpause: (rt: RuntimeName, id: string) =>
+  unpause: (rt: RuntimeScope, id: string) =>
     invoke<void>('unpause_container', { runtime: rt, id }),
-  remove: (rt: RuntimeName, id: string, force = true) =>
+  remove: (rt: RuntimeScope, id: string, force = true) =>
     invoke<void>('remove_container', { runtime: rt, id, force }),
   /** Rejects with a `Failure` (see `failureOf`) when the run fails. */
-  run: (rt: RuntimeName, cfg: RunContainerConfig) =>
+  run: (rt: RuntimeScope, cfg: RunContainerConfig) =>
     invoke<RunResult>('run_container', { runtime: rt, ...cfg }),
   /** Adjust a container's memory / CPU limits via `<runtime> update`. */
   update: (
-    rt: RuntimeName,
+    rt: RuntimeScope,
     id: string,
     memory?: string,
     memorySwap?: string,
     cpus?: string,
   ) =>
     invoke<void>('update_container', { runtime: rt, id, memory, memorySwap, cpus }),
-  inspect: (rt: RuntimeName, id: string) =>
+  inspect: (rt: RuntimeScope, id: string) =>
     invoke<unknown>('inspect_container', { runtime: rt, id }),
   /** Snapshot of cpu/mem for running containers, keyed by id and by name. */
   statsMap: async (
@@ -246,11 +261,11 @@ export const ContainerCommands = {
     }
     return map;
   },
-  startLogs: (rt: RuntimeName, id: string, tail = 200, timestamps = false) =>
+  startLogs: (rt: RuntimeScope, id: string, tail = 200, timestamps = false) =>
     invoke<void>('get_container_logs', { runtime: rt, id, tail, timestamps }),
   stopLogs: (id: string) => invoke<void>('stop_container_logs', { id }),
   execStart: (
-    rt: RuntimeName,
+    rt: RuntimeScope,
     id: string,
     shell: string,
     cols?: number,
@@ -270,21 +285,21 @@ export const ImageCommands = {
   list: async (filter: RuntimeFilter): Promise<ImageItem[]> => {
     const all = await fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_images', { runtime: rt });
-      return raw.map((r) => parseImage(rt, r));
+      return raw.map((r) => ({ ...parseImage(baseRt(rt), r), root: rt === 'podman-root' }));
     });
     return dedupeBy(all, (i) => i.id);
   },
-  remove: (rt: RuntimeName, id: string, force = true) =>
+  remove: (rt: RuntimeScope, id: string, force = true) =>
     invoke<void>('remove_image', { runtime: rt, id, force }),
   /** Rejects with a `Failure` (see `failureOf`) when the pull fails. */
-  pull: (rt: RuntimeName, image: string) =>
+  pull: (rt: RuntimeScope, image: string) =>
     invoke<PullResult>('pull_image', { runtime: rt, image }),
   /** Architecture of every local image, for the "emulated" label. */
-  archs: (rt: RuntimeName) => invoke<ImageArch[]>('image_archs', { runtime: rt }),
-  push: (rt: RuntimeName, tag: string) =>
+  archs: (rt: RuntimeScope) => invoke<ImageArch[]>('image_archs', { runtime: rt }),
+  push: (rt: RuntimeScope, tag: string) =>
     invoke<void>('push_image', { runtime: rt, tag }),
-  prune: (rt: RuntimeName) => invoke<string>('prune_images', { runtime: rt }),
-  tag: (rt: RuntimeName, source: string, target: string) =>
+  prune: (rt: RuntimeScope) => invoke<string>('prune_images', { runtime: rt }),
+  tag: (rt: RuntimeScope, source: string, target: string) =>
     invoke<void>('tag_image', { runtime: rt, source, target }),
 };
 
@@ -294,13 +309,13 @@ export const VolumeCommands = {
   list: (filter: RuntimeFilter): Promise<Volume[]> =>
     fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_volumes', { runtime: rt });
-      return raw.map((r) => parseVolume(rt, r));
+      return raw.map((r) => ({ ...parseVolume(baseRt(rt), r), root: rt === 'podman-root' }));
     }),
-  create: (rt: RuntimeName, name: string) =>
+  create: (rt: RuntimeScope, name: string) =>
     invoke<void>('create_volume', { runtime: rt, name }),
-  remove: (rt: RuntimeName, name: string, force = true) =>
+  remove: (rt: RuntimeScope, name: string, force = true) =>
     invoke<void>('remove_volume', { runtime: rt, name, force }),
-  prune: (rt: RuntimeName) => invoke<string>('prune_volumes', { runtime: rt }),
+  prune: (rt: RuntimeScope) => invoke<string>('prune_volumes', { runtime: rt }),
 };
 
 // ─── Networks ────────────────────────────────────────────────────────────────
@@ -309,7 +324,7 @@ export const NetworkCommands = {
   list: (filter: RuntimeFilter): Promise<Network[]> =>
     fanOut(filter, async (rt) => {
       const raw = await invoke<Raw[]>('list_networks', { runtime: rt });
-      return raw.map((r) => parseNetwork(rt, r));
+      return raw.map((r) => ({ ...parseNetwork(baseRt(rt), r), root: rt === 'podman-root' }));
     }),
 };
 
@@ -326,17 +341,17 @@ export const ComposeCommands = {
   pickFile: () => invoke<string | null>('pick_compose_file'),
   /** Service names declared in a compose file. Throws when the runtime has no
    *  working compose provider — also used as an availability probe. */
-  services: (rt: RuntimeName, composeFile: string) =>
+  services: (rt: RuntimeScope, composeFile: string) =>
     invoke<string[]>('compose_services', { runtime: rt, composeFile }),
   /** Bring a compose project up. Streams `compose-output`; ends with a
    *  `compose-done` event. `scale` entries are `service=count` strings. */
-  up: (rt: RuntimeName, composeFile: string, detach = true, scale: string[] = []) =>
+  up: (rt: RuntimeScope, composeFile: string, detach = true, scale: string[] = []) =>
     invoke<void>('compose_up', { runtime: rt, composeFile, detach, scale }),
   /** Stop and remove a compose project's containers. */
-  down: (rt: RuntimeName, composeFile: string) =>
+  down: (rt: RuntimeScope, composeFile: string) =>
     invoke<void>('compose_down', { runtime: rt, composeFile, removeVolumes: false }),
   /** Running compose projects with their config-file paths. */
-  list: async (rt: RuntimeName): Promise<ComposeProject[]> => {
+  list: async (rt: RuntimeScope): Promise<ComposeProject[]> => {
     const raw = await invoke<Array<Record<string, unknown>>>('list_compose_projects', {
       runtime: rt,
     });
@@ -371,7 +386,7 @@ export interface HostInfo {
 }
 
 export const SystemCommands = {
-  prune: (rt: RuntimeName) => invoke<string>('system_prune', { runtime: rt }),
+  prune: (rt: RuntimeScope) => invoke<string>('system_prune', { runtime: rt }),
   openUrl: (url: string) => invoke<void>('open_url', { url }),
   hostInfo: () => invoke<HostInfo>('host_info'),
   quit: () => invoke<void>('quit_app'),

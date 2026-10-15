@@ -198,7 +198,7 @@ export default function Networks() {
                 <span className="net-name mono">{n.name}</span>
                 <span
                   className="ctr-rt"
-                  title={n.rt}
+                  title={n.root ? `${n.rt} · root store` : n.rt}
                   style={{ background: RUNTIMES[n.rt]?.accent }}
                 />
                 <span className="scope-badge mono">{scopeOf(n)}</span>

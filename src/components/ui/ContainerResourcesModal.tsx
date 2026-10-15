@@ -7,7 +7,7 @@ import { Glyph } from './Icon';
 import { ContainerCommands } from '@/lib/commands';
 import { LIMIT_PRESETS } from '@/lib/limits';
 import { useAppStore } from '@/store/appStore';
-import type { Container } from '@/types';
+import { scopeOf, type Container } from '@/types';
 
 export function ContainerResourcesModal({
   container,
@@ -50,7 +50,7 @@ export function ContainerResourcesModal({
       cpus.trim() || undefined,
     )
       .then(() =>
-        thenStart ? ContainerCommands.start(container.rt, container.id) : undefined,
+        thenStart ? ContainerCommands.start(scopeOf(container), container.id) : undefined,
       )
       .then(() => refresh())
       .then(() => onClose())

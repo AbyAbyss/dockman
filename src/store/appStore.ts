@@ -5,14 +5,16 @@
 // seed data with local mutation so the UI keeps working without a backend.
 
 import { create } from 'zustand';
-import type {
-  Container,
-  ContainerStatus,
-  Problem,
-  ProblemEntry,
-  RuntimeFilter,
-  RuntimeName,
-  StatusFilter,
+import {
+  scopeOf,
+  type Container,
+  type ContainerStatus,
+  type Problem,
+  type ProblemEntry,
+  type RuntimeFilter,
+  type RuntimeName,
+  type RuntimeScope,
+  type StatusFilter,
 } from '@/types';
 import { INITIAL_CONTAINERS } from '@/data/seed';
 import { isTauri } from '@/lib/tauri';
@@ -31,10 +33,10 @@ const archCache = new Map<string, { arch: string; emulated: boolean }>();
 
 /** Overlay `arch` / `emulated` on each container from its image. */
 async function overlayArchs(containers: Container[]): Promise<Container[]> {
-  const keyFor = (c: Container) => [`${c.rt}:${c.imageId}`, `${c.rt}:${c.image}`];
-  const unknown = new Set<RuntimeName>();
+  const keyFor = (c: Container) => [`${scopeOf(c)}:${c.imageId}`, `${scopeOf(c)}:${c.image}`];
+  const unknown = new Set<RuntimeScope>();
   for (const c of containers) {
-    if (!keyFor(c).some((k) => archCache.has(k))) unknown.add(c.rt);
+    if (!keyFor(c).some((k) => archCache.has(k))) unknown.add(scopeOf(c));
   }
   await Promise.all(
     Array.from(unknown).map(async (rt) => {
@@ -94,6 +96,10 @@ interface AppState {
   /** Diagnosed problems, newest last. */
   problems: ProblemEntry[];
   problemsOpen: boolean;
+  /** A request to open the Run modal pre-filled (from a problem's fix). */
+  runRequest: { rt: RuntimeName; image: string; asRoot: boolean } | null;
+  /** A request to bring a compose stack up (from a problem's fix). */
+  composeRequest: { filePath: string; asRoot: boolean } | null;
   runtimeFilter: RuntimeFilter;
   query: string;
   live: boolean;
@@ -125,6 +131,8 @@ interface AppState {
   setEngineProblems: (engine: RuntimeName, probs: Problem[]) => void;
   dismissProblem: (key: string) => void;
   setProblemsOpen: (open: boolean) => void;
+  requestRun: (req: AppState['runRequest']) => void;
+  requestCompose: (req: AppState['composeRequest']) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setFocusedContainer: (id: string | null) => void;
   setSelectedNetwork: (name: string) => void;
@@ -187,6 +195,8 @@ export const useAppStore = create<AppState>((set, get) => {
   toasts: [],
   problems: [],
   problemsOpen: false,
+  runRequest: null,
+  composeRequest: null,
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
@@ -225,6 +235,8 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => ({ problems: s.problems.filter((x) => x.key !== key) }));
   },
   setProblemsOpen: (problemsOpen) => set({ problemsOpen }),
+  requestRun: (runRequest) => set({ runRequest, problemsOpen: false }),
+  requestCompose: (composeRequest) => set({ composeRequest, problemsOpen: false }),
 
   statusFilter: 'all',
   selection: [],
@@ -302,10 +314,10 @@ export const useAppStore = create<AppState>((set, get) => {
       try {
         if (next === 'running') {
           // A paused container resumes with `unpause`; `start` is a no-op on it.
-          if (c.status === 'paused') await ContainerCommands.unpause(c.rt, id);
-          else await ContainerCommands.start(c.rt, id);
-        } else if (next === 'paused') await ContainerCommands.pause(c.rt, id);
-        else await ContainerCommands.stop(c.rt, id);
+          if (c.status === 'paused') await ContainerCommands.unpause(scopeOf(c), id);
+          else await ContainerCommands.start(scopeOf(c), id);
+        } else if (next === 'paused') await ContainerCommands.pause(scopeOf(c), id);
+        else await ContainerCommands.stop(scopeOf(c), id);
       } catch (e) {
         fail(e);
       }
@@ -323,7 +335,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!c) return;
     if (live) {
       try {
-        await ContainerCommands.restart(c.rt, id);
+        await ContainerCommands.restart(scopeOf(c), id);
       } catch (e) {
         fail(e);
       }
@@ -343,8 +355,8 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!c) return;
     if (live) {
       try {
-        if (c.status === 'running') await ContainerCommands.pause(c.rt, id);
-        else await ContainerCommands.unpause(c.rt, id);
+        if (c.status === 'running') await ContainerCommands.pause(scopeOf(c), id);
+        else await ContainerCommands.unpause(scopeOf(c), id);
       } catch (e) {
         fail(e);
       }
@@ -371,7 +383,7 @@ export const useAppStore = create<AppState>((set, get) => {
     }));
     if (live) {
       try {
-        await ContainerCommands.remove(c.rt, id);
+        await ContainerCommands.remove(scopeOf(c), id);
       } catch (e) {
         fail(e);
       }
@@ -389,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => {
       );
       await Promise.all(
         stopped.map((c) =>
-          ContainerCommands.start(c.rt, c.id).catch((e) => fail(e)),
+          ContainerCommands.start(scopeOf(c), c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -410,7 +422,7 @@ export const useAppStore = create<AppState>((set, get) => {
       );
       await Promise.all(
         running.map((c) =>
-          ContainerCommands.restart(c.rt, c.id).catch((e) => fail(e)),
+          ContainerCommands.restart(scopeOf(c), c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -431,7 +443,7 @@ export const useAppStore = create<AppState>((set, get) => {
       );
       await Promise.all(
         running.map((c) =>
-          ContainerCommands.stop(c.rt, c.id).catch((e) => fail(e)),
+          ContainerCommands.stop(scopeOf(c), c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -454,13 +466,13 @@ export const useAppStore = create<AppState>((set, get) => {
           const call =
             action === 'start'
               ? c.status === 'paused'
-                ? ContainerCommands.unpause(c.rt, c.id)
-                : ContainerCommands.start(c.rt, c.id)
+                ? ContainerCommands.unpause(scopeOf(c), c.id)
+                : ContainerCommands.start(scopeOf(c), c.id)
               : action === 'stop'
-                ? ContainerCommands.stop(c.rt, c.id)
+                ? ContainerCommands.stop(scopeOf(c), c.id)
                 : action === 'restart'
-                  ? ContainerCommands.restart(c.rt, c.id)
-                  : ContainerCommands.remove(c.rt, c.id);
+                  ? ContainerCommands.restart(scopeOf(c), c.id)
+                  : ContainerCommands.remove(scopeOf(c), c.id);
           return call.catch((e) => fail(e));
         }),
       );
@@ -498,7 +510,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (live) {
       await Promise.all(
         targets.map((c) =>
-          ContainerCommands.start(c.rt, c.id).catch((e) => fail(e)),
+          ContainerCommands.start(scopeOf(c), c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -521,7 +533,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (live) {
       await Promise.all(
         targets.map((c) =>
-          ContainerCommands.stop(c.rt, c.id).catch((e) => fail(e)),
+          ContainerCommands.stop(scopeOf(c), c.id).catch((e) => fail(e)),
         ),
       );
       await refresh();
@@ -544,7 +556,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (live) {
       await Promise.all(
         targets.map((c) =>
-          ContainerCommands.restart(c.rt, c.id).catch((e) =>
+          ContainerCommands.restart(scopeOf(c), c.id).catch((e) =>
             fail(e),
           ),
         ),

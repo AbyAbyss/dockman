@@ -7,6 +7,8 @@ import { CommandPalette } from '@/components/ui/CommandPalette';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Toasts } from '@/components/ui/Toasts';
 import { ProblemsPanel } from '@/components/ui/ProblemsPanel';
+import { RunContainerModal } from '@/components/ui/RunContainerModal';
+import { ComposeLaunchModal } from '@/components/ui/ComposeLaunchModal';
 import { TABS } from '@/lib/tabs';
 import { RuntimeCommands, SystemCommands } from '@/lib/commands';
 import { useAppStore } from '@/store/appStore';
@@ -31,6 +33,10 @@ export default function App() {
   const driftCpu = useAppStore((s) => s.driftCpu);
   const stopAllRunning = useAppStore((s) => s.stopAllRunning);
   const setEngineProblems = useAppStore((s) => s.setEngineProblems);
+  const runRequest = useAppStore((s) => s.runRequest);
+  const composeRequest = useAppStore((s) => s.composeRequest);
+  const requestRun = useAppStore((s) => s.requestRun);
+  const requestCompose = useAppStore((s) => s.requestCompose);
   const runningCount = useAppStore(
     (s) =>
       s.containers.filter(
@@ -212,6 +218,26 @@ export default function App() {
         />
       )}
       <ProblemsPanel />
+      {runRequest && (
+        <RunContainerModal
+          defaultRuntime={runRequest.rt}
+          defaultImage={runRequest.image}
+          defaultAsRoot={runRequest.asRoot}
+          onClose={() => requestRun(null)}
+        />
+      )}
+      {composeRequest && (
+        <ComposeLaunchModal
+          filePath={composeRequest.filePath}
+          runtime={composeRequest.asRoot ? 'podman-root' : 'podman'}
+          downFirst={composeRequest.asRoot ? 'podman' : undefined}
+          title="Up as root in the VM"
+          onClose={() => {
+            requestCompose(null);
+            refresh();
+          }}
+        />
+      )}
       <Toasts />
       {!wizardCompleted && <SetupWizard />}
     </div>

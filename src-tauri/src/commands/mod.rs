@@ -15,6 +15,7 @@ pub mod exec;
 pub mod images;
 pub mod networks;
 pub mod problems;
+pub mod rootvm;
 pub mod runtime;
 pub mod system;
 pub mod volumes;
@@ -146,7 +147,13 @@ pub fn ensure_docker_helpers() -> Result<(), String> {
 }
 
 /// Resolve a runtime name ("docker" / "podman") to an absolute binary path.
+/// "podman-root" resolves to a wrapper that runs podman against the machine's
+/// root connection (see `rootvm`), so every command works unchanged for
+/// containers that run as root inside the VM.
 pub fn resolve(runtime: &str) -> Result<String, String> {
+    if runtime == "podman-root" {
+        return rootvm::wrapper();
+    }
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Ok(p) = which::which_in(runtime, Some(shell_path()), &cwd) {
         return Ok(p.to_string_lossy().into_owned());
@@ -190,9 +197,16 @@ pub fn which_optional(name: &str) -> Option<String> {
 
 /// Run a CLI command to completion, returning stdout on success.
 pub fn run(bin: &str, args: &[&str]) -> Result<String, String> {
+    run_env(bin, args, &[])
+}
+
+/// `run` with extra environment variables (e.g. `DOCKER_HOST` for a compose
+/// provider aimed at the root socket).
+pub fn run_env(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
     let output = Command::new(bin)
         .args(args)
         .env("PATH", shell_path())
+        .envs(envs.iter().copied())
         .output()
         .map_err(|e| format!("failed to run {bin}: {e}"))?;
     if output.status.success() {
@@ -253,9 +267,23 @@ pub fn spawn_streaming(
     bin: &str,
     args: &[&str],
 ) -> Result<(), String> {
+    spawn_streaming_env(app, registry, key, event, bin, args, &[])
+}
+
+/// `spawn_streaming` with extra environment variables.
+pub fn spawn_streaming_env(
+    app: &tauri::AppHandle,
+    registry: &Registry,
+    key: String,
+    event: String,
+    bin: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
     let mut child = Command::new(bin)
         .args(args)
         .env("PATH", shell_path())
+        .envs(envs.iter().copied())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

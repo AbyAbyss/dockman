@@ -89,6 +89,8 @@ export function ProblemsPanel() {
   const problems = useAppStore((s) => s.problems);
   const reportOk = useAppStore((s) => s.reportOk);
   const reportError = useAppStore((s) => s.reportError);
+  const requestRun = useAppStore((s) => s.requestRun);
+  const requestCompose = useAppStore((s) => s.requestCompose);
   const navigate = useNavigate();
   const [confirmRootful, setConfirmRootful] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -105,6 +107,14 @@ export function ProblemsPanel() {
 
   const onFix = (fix: ProblemFix, p: ProblemEntry) => {
     switch (fix.action) {
+      case 'retry_as_root':
+        // The default fix for a rootless failure: this one container again,
+        // as root inside the VM. Opens the Run modal pre-filled.
+        requestRun({ rt: 'podman', image: p.image ?? '', asRoot: true });
+        return;
+      case 'retry_compose_as_root':
+        if (p.file) requestCompose({ filePath: p.file, asRoot: true });
+        return;
       case 'set_rootful':
         setConfirmRootful(true);
         return;

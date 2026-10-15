@@ -12,7 +12,7 @@ import { ContainerCommands, containerLogsEvent } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
 import { useAppStore } from '@/store/appStore';
 import { RUNTIMES } from '@/data/seed';
-import type { Container } from '@/types';
+import { scopeOf, type Container } from '@/types';
 
 export type DetailTab = 'logs' | 'shell' | 'stats' | 'env' | 'mounts' | 'inspect';
 
@@ -87,7 +87,7 @@ function LogsTab({ container }: { container: Container }) {
     let cancelled = false;
     setLines([]);
     setError('');
-    ContainerCommands.startLogs(container.rt, container.id, tail, timestamps).catch(
+    ContainerCommands.startLogs(scopeOf(container), container.id, tail, timestamps).catch(
       (e) => !cancelled && setError(String(e)),
     );
     listen<string>(containerLogsEvent(container.id), (l) =>
@@ -205,7 +205,7 @@ function InspectTab({ container }: { container: Container }) {
       return;
     }
     let cancelled = false;
-    ContainerCommands.inspect(container.rt, container.id)
+    ContainerCommands.inspect(scopeOf(container), container.id)
       .then((raw) => {
         if (cancelled) return;
         setJson(JSON.stringify(Array.isArray(raw) ? raw[0] : raw, null, 2));
@@ -345,7 +345,7 @@ function useInspect(container: Container) {
   useEffect(() => {
     if (!live) return;
     let cancelled = false;
-    ContainerCommands.inspect(container.rt, container.id)
+    ContainerCommands.inspect(scopeOf(container), container.id)
       .then((raw) => {
         if (cancelled) return;
         setError('');
