@@ -86,7 +86,60 @@ pub async fn host_info() -> Result<HostInfo, String> {
 /// Quit the application.
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
+    request_quit(app);
+}
+
+/// Quit, asking first when an engine Dockman manages is still running — the
+/// Settings button, the tray and ⌘Q all come through here. Like Docker
+/// Desktop and OrbStack the person chooses; unlike them the default is to
+/// leave the engine up, because it is also driven from the terminal.
+pub fn request_quit(app: tauri::AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
+    std::thread::spawn(move || {
+        let running = super::runtime::running_engines();
+        if running.is_empty() {
+            app.exit(0);
+            return;
+        }
+        crate::tray::show_main(&app);
+        let verb = if running.len() == 1 { "is" } else { "are" };
+        let msg = format!(
+            "{} {verb} still running.\n\nKeep running: everything stays up after Dockman \
+             quits.\nStop engines: the engine shuts down with every container in it, \
+             including ones started from a terminal.",
+            running.join(" and ")
+        );
+        let choice = app
+            .dialog()
+            .message(msg)
+            .title("Quit Dockman?")
+            .buttons(MessageDialogButtons::YesNoCancelCustom(
+                "Keep running".into(),
+                "Stop engines".into(),
+                "Cancel".into(),
+            ))
+            .blocking_show_with_result();
+        match choice {
+            MessageDialogResult::Yes => app.exit(0),
+            MessageDialogResult::Custom(c) if c == "Keep running" => app.exit(0),
+            MessageDialogResult::No => stop_then_exit(&app),
+            MessageDialogResult::Custom(c) if c == "Stop engines" => stop_then_exit(&app),
+            _ => {}
+        }
+    });
+
+    fn stop_then_exit(app: &tauri::AppHandle) {
+        match super::runtime::stop_engines() {
+            Ok(()) => app.exit(0),
+            Err(e) => {
+                app.dialog()
+                    .message(format!("{e}\n\nDockman stays open; nothing was stopped."))
+                    .title("Could not stop engines")
+                    .kind(MessageDialogKind::Error)
+                    .blocking_show();
+            }
+        }
+    }
 }
 
 /// Toggle native window translucency: macOS vibrancy / Windows acrylic.

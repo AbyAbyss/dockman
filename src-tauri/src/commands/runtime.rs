@@ -288,49 +288,113 @@ pub(super) fn docker_served_by_podman() -> bool {
     target.to_string_lossy().contains("podman")
 }
 
+/// Start a Docker engine. macOS has no native Docker daemon — `dockerd` is
+/// Linux-only, so a Docker engine is always a Linux VM. First launch a desktop
+/// engine app if one is installed (OrbStack / Docker Desktop / Rancher).
+fn start_docker() -> Result<(), String> {
+    // The standalone CLI omits the registry credential helper — fetch it.
+    let _ = super::ensure_docker_helpers();
+    if docker_served_by_podman() {
+        return start_podman();
+    }
+    for app in ["OrbStack", "Docker", "Rancher Desktop"] {
+        let launched = std::process::Command::new("open")
+            .args(["-a", app])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if launched {
+            return Ok(());
+        }
+    }
+    // Otherwise fall back to Colima — a CLI-managed Docker VM, the
+    // headless equivalent of `podman machine`. First run is slow: it
+    // boots a Linux VM with dockerd inside.
+    if let Some(colima) = super::which_optional("colima") {
+        return super::run(&colima, &["start"])
+            .map(|_| ())
+            .map_err(|e| {
+                if e.contains("already running") {
+                    String::new()
+                } else {
+                    format!("colima start failed: {e}")
+                }
+            })
+            .or_else(|e| if e.is_empty() { Ok(()) } else { Err(e) });
+    }
+    Err("no Docker engine found — open OrbStack or Docker Desktop, or \
+         run `brew install colima` for a CLI-managed Docker daemon"
+        .to_string())
+}
+
 #[tauri::command]
 pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
     match runtime.as_str() {
         "podman" => start_podman(),
-        "docker" => {
-            // The standalone CLI omits the registry credential helper — fetch it.
-            let _ = super::ensure_docker_helpers();
-            if docker_served_by_podman() {
-                return start_podman();
-            }
-            // macOS has no native Docker daemon — `dockerd` is Linux-only, so a
-            // Docker engine is always a Linux VM. First launch a desktop engine
-            // app if one is installed (OrbStack / Docker Desktop / Rancher).
-            for app in ["OrbStack", "Docker", "Rancher Desktop"] {
-                let launched = std::process::Command::new("open")
-                    .args(["-a", app])
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
-                if launched {
-                    return Ok(());
-                }
-            }
-            // Otherwise fall back to Colima — a CLI-managed Docker VM, the
-            // headless equivalent of `podman machine`. First run is slow: it
-            // boots a Linux VM with dockerd inside.
-            if let Some(colima) = super::which_optional("colima") {
-                return super::run(&colima, &["start"])
-                    .map(|_| ())
-                    .map_err(|e| {
-                        if e.contains("already running") {
-                            String::new()
-                        } else {
-                            format!("colima start failed: {e}")
-                        }
-                    })
-                    .or_else(|e| if e.is_empty() { Ok(()) } else { Err(e) });
-            }
-            Err("no Docker engine found — open OrbStack or Docker Desktop, or \
-                 run `brew install colima` for a CLI-managed Docker daemon"
-                .to_string())
-        }
+        "docker" => start_docker(),
         other => Err(format!("unknown runtime: {other}")),
+    }
+}
+
+fn podman_machine_running(bin: &str) -> bool {
+    super::run(bin, &["machine", "inspect", "--format", "{{.State}}"])
+        .map(|s| s.trim() == "running")
+        .unwrap_or(false)
+}
+
+fn colima_running(colima: &str) -> bool {
+    super::run(colima, &["status"]).is_ok()
+}
+
+/// The engines Dockman itself can stop — the podman machine and Colima —
+/// that are up right now, described for the tray and the quit prompt
+/// ("Podman machine (3 containers)"). Desktop engine apps (OrbStack, Docker
+/// Desktop) are someone else's process and are never listed.
+pub fn running_engines() -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(bin) = super::resolve("podman") {
+        if podman_machine_running(&bin) {
+            let n = super::run(&bin, &["ps", "-q"])
+                .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+                .unwrap_or(0);
+            out.push(match n {
+                0 => "Podman machine".to_string(),
+                1 => "Podman machine (1 container)".to_string(),
+                n => format!("Podman machine ({n} containers)"),
+            });
+        }
+    }
+    if let Some(colima) = super::which_optional("colima") {
+        if colima_running(&colima) {
+            out.push("Colima".to_string());
+        }
+    }
+    out
+}
+
+/// Stop every engine `running_engines` lists.
+pub fn stop_engines() -> Result<(), String> {
+    if let Ok(bin) = super::resolve("podman") {
+        if podman_machine_running(&bin) {
+            super::run(&bin, &["machine", "stop"])
+                .map_err(|e| format!("podman machine stop failed: {e}"))?;
+        }
+    }
+    if let Some(colima) = super::which_optional("colima") {
+        if colima_running(&colima) {
+            super::run(&colima, &["stop"]).map_err(|e| format!("colima stop failed: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Start the engine for the tray: the podman machine when podman is
+/// installed, otherwise whatever Docker engine can be found.
+pub fn start_engines() -> Result<(), String> {
+    if super::resolve("podman").is_ok() {
+        start_podman()
+    } else {
+        start_docker()
     }
 }
 

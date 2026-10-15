@@ -228,7 +228,7 @@ export default function Settings() {
           <div className="maint-row">
             <div className="maint-id">
               <div className="maint-l">Quit Dockman</div>
-              <div className="maint-s mono">exit the app · engines keep running</div>
+              <div className="maint-s mono">exit the app · asks first when an engine is running</div>
             </div>
             <button
               type="button"

@@ -2,6 +2,7 @@
 // Registers plugins, the process registry, and every runtime command.
 
 mod commands;
+mod tray;
 
 use commands::{
     builds, compose, containers, downloader, exec, images, networks, problems, runtime,
@@ -21,6 +22,15 @@ pub fn run() {
         ))
         .manage(commands::Registry::default())
         .manage(std::sync::Arc::new(commands::exec::ExecSessions::default()))
+        .setup(|app| Ok(tray::setup(app.handle())?))
+        .on_menu_event(|app, e| tray::on_menu(app, e.id().as_ref()))
+        // Closing the window hides it; the app keeps running in the tray.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // runtime
             runtime::detect_runtime,
@@ -111,6 +121,12 @@ pub fn run() {
             downloader::get_available_releases,
             downloader::download_binary,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Dockman");
+        .build(tauri::generate_context!())
+        .expect("error while running Dockman")
+        .run(|app, event| match event {
+            // Dock icon click with the window hidden.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            _ => {}
+        });
 }
