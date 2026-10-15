@@ -342,7 +342,7 @@ pub async fn engine_problems(runtime: String) -> Result<Vec<Problem>, String> {
             cause: "Apple Silicon Macs don't ship Rosetta 2. Both engines can use it for much faster amd64 emulation. A podman machine created before Rosetta is installed has to be recreated to use it."
                 .into(),
             fixes: vec![fix(
-                "Install Rosetta",
+                "Copy the Rosetta install command",
                 None,
                 Some("softwareupdate --install-rosetta --agree-to-license"),
             )],
@@ -362,7 +362,7 @@ pub async fn engine_problems(runtime: String) -> Result<Vec<Problem>, String> {
             cause: "/var/run/docker.sock is linked to the podman machine (podman-mac-helper), so both CLIs see the same containers. Dockman shows them once, under podman."
                 .into(),
             fixes: vec![fix(
-                "Remove the link",
+                "Copy the command to remove the link",
                 None,
                 Some("sudo podman-mac-helper uninstall"),
             )],

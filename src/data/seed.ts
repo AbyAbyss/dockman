@@ -17,6 +17,7 @@ import type {
   RuntimeMeta,
   RuntimeName,
   Volume,
+  Problem,
 } from '@/types';
 
 export const INITIAL_CONTAINERS: Container[] = [
@@ -28,10 +29,38 @@ export const INITIAL_CONTAINERS: Container[] = [
   { id: 'c-2a55', rt: 'podman', name: 'mailhog-dev',       image: 'mailhog/mailhog:latest', status: 'stopped', cpu: 0,   mem: 0,   port: '1025,8025', uptime: '—',       tag: 'dev-tool',      stack: 'api-platform' },
   { id: 'c-8f31', rt: 'docker', name: 'prometheus',        image: 'prom/prometheus:v2.51',  status: 'running', cpu: 1.8, mem: 224, port: '9090:9090', uptime: '6d 21h',  tag: 'observability', stack: 'observability' },
   { id: 'c-4b72', rt: 'docker', name: 'grafana',           image: 'grafana/grafana:10.4',   status: 'running', cpu: 0.9, mem: 142, port: '3001:3000', uptime: '6d 21h',  tag: 'observability', stack: 'observability' },
-  { id: 'c-5e90', rt: 'podman', name: 'nginx-edge',        image: 'nginx:1.27-alpine',      status: 'running', cpu: 0.3, mem: 22,  port: '80,443',    uptime: '12d 04h', tag: 'service',       stack: 'api-platform' },
+  { id: 'c-5e90', rt: 'podman', name: 'nginx-edge',        image: 'nginx:1.27-alpine',      status: 'running', cpu: 0.3, mem: 22,  port: '80,443',    uptime: '12d 04h', tag: 'service',       stack: 'api-platform', root: true },
   { id: 'c-0a13', rt: 'podman', name: 'jaeger-tracing',    image: 'jaegertracing/all-in-1', status: 'stopped', cpu: 0,   mem: 0,   port: '16686',     uptime: '—',       tag: 'observability', stack: 'observability' },
-  { id: 'c-b3f8', rt: 'podman', name: 'meilisearch',       image: 'getmeili/meilisearch',   status: 'running', cpu: 1.1, mem: 198, port: '7700:7700', uptime: '2d 08h',  tag: 'service',       stack: 'api-platform' },
+  { id: 'c-b3f8', rt: 'podman', name: 'meilisearch',       image: 'getmeili/meilisearch',   status: 'running', cpu: 1.1, mem: 198, port: '7700:7700', uptime: '2d 08h',  tag: 'service',       stack: 'api-platform', arch: 'amd64', emulated: true },
   { id: 'c-e571', rt: 'docker', name: 'clickhouse-events', image: 'clickhouse:24.3',        status: 'paused',  cpu: 0,   mem: 140, port: '8123,9000', uptime: '—',       tag: 'database',      stack: 'data-store' },
+];
+
+/** Browser-mode sample of diagnosed problems, so the panel can be reviewed
+ *  without a backend. */
+export const INITIAL_PROBLEMS: Problem[] = [
+  {
+    code: 'engine.rootless_cgroups',
+    severity: 'error',
+    engine: 'podman',
+    container: 'c-2a55',
+    image: 'ghcr.io/engineer-man/piston:latest',
+    message: 'The container died right after starting on a rootless podman machine.',
+    cause:
+      'Its startup script failed on a write or permission error. On a rootless machine the usual cause is a missing cgroup controller (cpuset) or a privileged operation only root may do. Running this one container as root inside the podman VM gives it the same thing Docker Desktop always gives, and nothing else changes.',
+    fixes: [
+      { label: 'Run again as root in the VM', action: 'retry_as_root', command: 'podman --connection podman-machine-default-root run … ghcr.io/engineer-man/piston:latest' },
+    ],
+    logTail: '/piston_api/src/docker-entrypoint.sh: line 22: echo: write error: No such file or directory',
+  },
+  {
+    code: 'engine.rosetta_missing',
+    severity: 'info',
+    engine: 'podman',
+    message: "Rosetta isn't installed, so Intel (amd64) images run on slow QEMU emulation.",
+    cause: "Apple Silicon Macs don't ship Rosetta 2. Both engines can use it for much faster amd64 emulation.",
+    fixes: [{ label: 'Copy the Rosetta install command', command: 'softwareupdate --install-rosetta --agree-to-license' }],
+    logTail: '',
+  },
 ];
 
 export const INITIAL_IMAGES: ImageItem[] = [

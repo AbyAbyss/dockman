@@ -16,7 +16,7 @@ import {
   type RuntimeScope,
   type StatusFilter,
 } from '@/types';
-import { INITIAL_CONTAINERS } from '@/data/seed';
+import { INITIAL_CONTAINERS, INITIAL_PROBLEMS } from '@/data/seed';
 import { isTauri } from '@/lib/tauri';
 import { ContainerCommands, ImageCommands } from '@/lib/commands';
 
@@ -193,7 +193,9 @@ export const useAppStore = create<AppState>((set, get) => {
   loading: false,
   error: null,
   toasts: [],
-  problems: [],
+  problems: isTauri()
+    ? []
+    : INITIAL_PROBLEMS.map((p) => ({ ...p, key: problemKey(p), source: 'event' as const, at: Date.now() })),
   problemsOpen: false,
   runRequest: null,
   composeRequest: null,
