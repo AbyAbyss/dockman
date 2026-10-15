@@ -31,6 +31,8 @@ const EMPTY: Pair = { a: '', b: '' };
 // Quick-pick images, each with a sensible default port / env so a click is
 // genuinely one step away from a running service.
 const PRESETS: { label: string; image: string; port?: string; env?: string }[] = [
+  // Prints a greeting and exits: the quickest check that a runtime works.
+  { label: 'hello-world', image: 'hello-world' },
   { label: 'redis', image: 'redis:7-alpine', port: '6379:6379' },
   {
     label: 'postgres',
