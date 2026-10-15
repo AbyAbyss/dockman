@@ -6,7 +6,7 @@
 // for root-in-the-VM stacks the provider is driven directly with
 // `DOCKER_HOST` pointing at the forwarded root socket (see `rootvm`).
 
-use super::problems::Fix;
+use super::problems::{Fix, Problem};
 use super::Registry;
 use std::io::BufRead;
 use tauri::Emitter;
@@ -97,6 +97,28 @@ fn project_name(compose_file: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Real-machine check: bring the sandkit Piston stack up on the rootless
+    /// podman machine and make sure the backend diagnoses the dead service
+    /// and offers the stack again as root. Needs podman, docker-compose and
+    /// the sandkit checkout; run with `cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn rootless_piston_stack_is_diagnosed_on_a_real_machine() {
+        let file = format!(
+            "{}/Desktop/github_repos/sandkit/docker/piston/docker-compose.yml",
+            std::env::var("HOME").unwrap()
+        );
+        assert!(std::path::Path::new(&file).exists(), "sandkit checkout missing");
+        let bin = crate::commands::resolve("podman").unwrap();
+        crate::commands::run(&bin, &["compose", "-f", &file, "up", "-d"]).unwrap();
+        let p = super::diagnose_rootless_stack(&bin, &file, std::time::Duration::from_secs(6));
+        let _ = crate::commands::run(&bin, &["compose", "-f", &file, "down"]);
+        let p = p.expect("the dead piston service should be diagnosed");
+        assert_eq!(p.code, "engine.rootless_cgroups");
+        assert_eq!(p.file.as_deref(), Some(file.as_str()));
+        assert_eq!(p.fixes[0].action.as_deref(), Some("retry_compose_as_root"));
+    }
+
     #[test]
     fn project_name_follows_compose_defaults() {
         assert_eq!(super::project_name("/Users/aby/sandkit/docker/piston/docker-compose.yml"), "piston");
@@ -107,20 +129,22 @@ mod tests {
 /// After a rootless podman `compose up` succeeds, look for a service that died
 /// right after starting and diagnose it. A stack hitting the rootless cgroup
 /// limit (Piston) reports "Started" and then restart-loops, so the exit
-/// status alone says nothing. Emits `compose-problem` with the fix.
-fn check_rootless_stack(app: &tauri::AppHandle, bin: &str, compose_file: &str) {
+/// status alone says nothing. `wait` gives the services time to fail.
+pub fn diagnose_rootless_stack(
+    bin: &str,
+    compose_file: &str,
+    wait: std::time::Duration,
+) -> Option<Problem> {
     let rootful = super::run(bin, &["machine", "inspect", "--format", "{{.Rootful}}"])
         .map(|s| s.trim() == "true")
         .unwrap_or(true);
     if rootful {
-        return;
+        return None;
     }
-    std::thread::sleep(std::time::Duration::from_secs(6));
+    std::thread::sleep(wait);
     let project = project_name(compose_file);
     let filter = format!("label=com.docker.compose.project={project}");
-    let Ok(raw) = super::run(bin, &["ps", "-a", "--filter", &filter, "--format", "json"]) else {
-        return;
-    };
+    let raw = super::run(bin, &["ps", "-a", "--filter", &filter, "--format", "json"]).ok()?;
     for c in super::parse_json_lines(&raw) {
         let state = c.get("State").and_then(|v| v.as_str()).unwrap_or("");
         let code = c.get("ExitCode").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -144,9 +168,16 @@ fn check_rootless_stack(app: &tauri::AppHandle, bin: &str, compose_file: &str) {
                     )),
                 }];
             }
-            let _ = app.emit("compose-problem", p.clone());
-            return;
+            return Some(p);
         }
+    }
+    None
+}
+
+/// Emit the diagnosis of a rootless stack (if any) on `compose-problem`.
+fn check_rootless_stack(app: &tauri::AppHandle, bin: &str, compose_file: &str) {
+    if let Some(p) = diagnose_rootless_stack(bin, compose_file, std::time::Duration::from_secs(6)) {
+        let _ = app.emit("compose-problem", p);
     }
 }
 

@@ -7,8 +7,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from './Icon';
 import { COMPOSE_PROBLEM, ComposeCommands } from '@/lib/commands';
-import { listen, type UnlistenFn } from '@/lib/tauri';
+import { isTauri, listen, type UnlistenFn } from '@/lib/tauri';
 import { useAppStore } from '@/store/appStore';
+import { INITIAL_PROBLEMS } from '@/data/seed';
 import type { Problem, RuntimeName, RuntimeScope } from '@/types';
 
 type SvcStatus =
@@ -118,6 +119,32 @@ export function ComposeLaunchModal({
     let cancelled = false;
 
     (async () => {
+      if (!isTauri()) {
+        // Browser mode: animate a sample stack; a rootless podman launch then
+        // shows the diagnosis card, a root one comes up clean.
+        const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        setSvcs(['piston', 'redis', 'postgres'].map((name) => ({ name, status: 'pending' })));
+        setPhase('running');
+        for (const status of ['pulling', 'creating', 'starting', 'running'] as SvcStatus[]) {
+          await pause(450);
+          if (cancelled) return;
+          setSvcs((prev) => prev.map((s) => ({ ...s, status })));
+        }
+        setOk(true);
+        setPhase('done');
+        if (rt !== 'podman-root') {
+          await pause(600);
+          if (cancelled) return;
+          setSvcs((prev) => prev.map((s) => (s.name === 'piston' ? { ...s, status: 'failed' } : s)));
+          setProblem({
+            ...INITIAL_PROBLEMS[0],
+            file: fp,
+            fixes: [{ label: 'Run this stack again as root in the VM', action: 'retry_compose_as_root' }],
+          });
+        }
+        return;
+      }
+
       // Find a runtime whose `compose` provider actually works — try the
       // preferred one first, then fall back to the others. Root-in-the-VM
       // is explicit and never a fallback.

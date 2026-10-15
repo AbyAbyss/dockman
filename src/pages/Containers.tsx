@@ -272,6 +272,9 @@ export default function Containers() {
   const stackUp = (stack: string) => {
     const info = composeStacks[stack];
     if (info) setComposeLaunch({ filePath: info.file, runtime: info.runtime, title: `Up ${stack}` });
+    else if (!live)
+      // Browser mode has no compose files; show the launcher with a sample stack.
+      setComposeLaunch({ filePath: `/seed/${stack}/docker-compose.yml`, runtime: 'podman', title: `Up ${stack}` });
     else startStack(stack);
   };
 
