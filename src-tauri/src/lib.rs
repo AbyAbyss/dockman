@@ -86,6 +86,7 @@ pub fn run() {
             // networks
             networks::list_networks,
             networks::inspect_network,
+            networks::create_network,
             // compose
             compose::list_compose_projects,
             compose::compose_services,

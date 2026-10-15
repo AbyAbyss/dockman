@@ -36,6 +36,8 @@ export interface Container {
   uptime: string;
   tag: string;
   stack: string;
+  /** Networks the container is attached to, as the runtime lists them. */
+  networks: string[];
   /** Image id as the runtime reports it (podman only; docker's list omits it). */
   imageId?: string;
   /** Architecture of the container's image, when known ('amd64', 'arm64'). */
@@ -119,16 +121,6 @@ export interface Network {
   root?: boolean;
 }
 
-export type ActivityKind = 'start' | 'stop' | 'pull' | 'build' | 'prune' | 'fallback';
-
-export interface ActivityEntry {
-  t: string;
-  rt: RuntimeName;
-  kind: ActivityKind;
-  target: string;
-  note: string;
-}
-
 export interface RuntimeMeta {
   name: string;
   short: string;
@@ -156,14 +148,6 @@ export interface BinaryManifest {
   versions: BinaryVersion[];
 }
 
-export interface DownloadHistoryEntry {
-  rt: RuntimeName;
-  v: string;
-  when: string;
-  status: string;
-  path: string;
-}
-
 // ─── Builds ──────────────────────────────────────────────────────────────────
 
 export type BuildStatus = 'success' | 'failed' | 'running' | 'cancelled';
@@ -188,17 +172,6 @@ export interface BuildRecord {
   layerCount: number;
   dockerfile: string;
   layers: BuildLayer[];
-}
-
-export interface CacheImage {
-  name: string;
-  layers: number;
-}
-
-export interface LayerCacheInfo {
-  totalSize: string;
-  cachedLayers: number;
-  images: CacheImage[];
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────

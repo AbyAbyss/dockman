@@ -28,6 +28,13 @@ function firstName(v: unknown): string {
   return '';
 }
 
+/** A list the CLI gives either as an array or as a comma-joined string. */
+function namesOf(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
+  if (typeof v === 'string') return v.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
 function labelsOf(v: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   if (v && typeof v === 'object' && !Array.isArray(v)) {
@@ -101,6 +108,7 @@ export function parseContainer(rt: RuntimeName, o: Raw): Container {
     uptime: str(o, 'Status', 'RunningFor') || '—',
     tag: service ? 'service' : 'container',
     stack: labels['com.docker.compose.project'] || 'standalone',
+    networks: namesOf(o.Networks),
     imageId: str(o, 'ImageID').replace(/^sha256:/, ''),
   };
 }

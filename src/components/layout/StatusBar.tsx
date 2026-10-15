@@ -5,6 +5,7 @@ import { Glyph } from '@/components/ui/Icon';
 import { useCounts } from '@/hooks/useCounts';
 import { useRuntimes } from '@/hooks/useData';
 import { useAppStore } from '@/store/appStore';
+import { APP_VERSION } from '@/lib/version';
 import type { RuntimeMeta } from '@/types';
 
 const versionOf = (rt: RuntimeMeta) =>
@@ -24,7 +25,7 @@ export function StatusBar() {
   return (
     <footer className="statusbar mono">
       <span>
-        dockman 0.1 · docker {versionOf(runtimes.docker)} · podman{' '}
+        dockman {APP_VERSION} · docker {versionOf(runtimes.docker)} · podman{' '}
         {versionOf(runtimes.podman)}
       </span>
       <span>

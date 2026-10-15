@@ -15,7 +15,7 @@ import {
   type SetupStatus,
 } from '@/lib/commands';
 import { isTauri, listen, type UnlistenFn } from '@/lib/tauri';
-import { BINARY_MANIFEST, DOWNLOAD_HISTORY, RUNTIMES } from '@/data/seed';
+import { BINARY_MANIFEST, RUNTIMES } from '@/data/seed';
 import type { RuntimeName } from '@/types';
 
 type Phase = 'downloading' | 'extracting' | 'installing' | 'done' | 'error';
@@ -486,7 +486,7 @@ export default function Binaries() {
       </div>
 
       {/* ─── Bottom row ────────────────────────────────────────────────── */}
-      <div className="ov-row-3">
+      <div className="bin-row-2">
         <div className="card bin-loc">
           <div className="card-title">Install location</div>
           <input
@@ -523,30 +523,6 @@ export default function Binaries() {
           <div className="bin-sub mono">
             runs the binary once and records the version it reports
           </div>
-        </div>
-
-        <div className="card bin-dl">
-          <div className="card-title">Recent downloads</div>
-          {DOWNLOAD_HISTORY.map((d, i) => (
-            <div key={i} className="bin-dl-row">
-              <span
-                className="ov-engine-dot"
-                style={{ background: RUNTIMES[d.rt].accent }}
-              />
-              <div className="bin-dl-id">
-                <div className="bin-dl-v">
-                  {d.rt} {d.v}
-                </div>
-                <div className="bin-dl-p mono">{d.path}</div>
-              </div>
-              <div className="bin-dl-state">
-                <div className="mono">{d.when}</div>
-                <div className={`bin-dl-status mono ${d.status === 'success' ? 'is-on' : ''}`}>
-                  {d.status.toUpperCase()}
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
 
         <div className="card bin-machine">

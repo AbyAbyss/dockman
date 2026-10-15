@@ -1,6 +1,6 @@
 // Overview — the console dashboard. Replaces the oversized stat tiles with a
 // thin health strip, then engine cards, host resources, compose stack cards
-// and the activity / quick-command pair.
+// and quick commands.
 
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,50 +9,7 @@ import { useAppStore } from '@/store/appStore';
 import { useCounts } from '@/hooks/useCounts';
 import { useHostResources } from '@/hooks/useHostResources';
 import { useImages, useRuntimes, useVolumes } from '@/hooks/useData';
-import { ACTIVITY, CPU_SPARK, MEM_SPARK } from '@/data/seed';
-import type { ActivityKind, Container, RuntimeName } from '@/types';
-
-/** Bar sparkline — heights are a percentage of the series max, floor 6%. */
-function Spark({
-  series,
-  tone = 'accent',
-  height = 30,
-}: {
-  series: number[];
-  tone?: 'accent' | 'accent-soft' | 'warn';
-  height?: number;
-}) {
-  const max = Math.max(1, ...series);
-  return (
-    <div className="spark" style={{ height }}>
-      {series.map((v, i) => (
-        <div
-          key={i}
-          className={`spark-bar tone-${tone}`}
-          style={{ height: `${Math.max(6, (v / max) * 100)}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-const KIND_LABEL: Record<ActivityKind, string> = {
-  start: 'STARTED',
-  stop: 'STOPPED',
-  pull: 'PULLED',
-  build: 'BUILT',
-  prune: 'PRUNED',
-  fallback: 'FALLBACK',
-};
-
-const KIND_TONE: Record<ActivityKind, string> = {
-  start: 'ok',
-  stop: 'dim',
-  pull: 'info',
-  build: 'ok',
-  prune: 'bad',
-  fallback: 'warn',
-};
+import type { Container, RuntimeName } from '@/types';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -154,7 +111,7 @@ export default function Dashboard() {
     {
       icon: 'trash',
       label: 'Prune unused',
-      sub: 'reclaim 1.2 GB estimated',
+      sub: 'unused images and volumes',
       tone: 'warn',
       run: () => navigate('/volumes'),
     },
@@ -263,21 +220,18 @@ export default function Dashboard() {
               k: 'CPU',
               v: `${Math.round(res.cpuPercent)}%`,
               sub: `${res.coresBusy} of ${res.cores} cores busy`,
-              series: CPU_SPARK,
               tone: 'accent' as const,
             },
             {
               k: 'MEMORY',
               v: `${res.memUsedGb.toFixed(1)} GB`,
               sub: `of ${Math.round(res.memTotalGb)} GB`,
-              series: MEM_SPARK,
               tone: 'accent-soft' as const,
             },
             {
               k: 'DISK',
               v: `${Math.round(res.diskUsedGb)} GB`,
               sub: `${Math.round(res.diskFreeGb)} GB free`,
-              series: MEM_SPARK.map((m) => m * 0.4),
               tone: 'warn' as const,
             },
           ].map((b) => (
@@ -287,7 +241,6 @@ export default function Dashboard() {
                 <span className="ov-res-v">{b.v}</span>
               </div>
               <div className="ov-res-sub mono">{b.sub}</div>
-              <Spark series={b.series} tone={b.tone} />
             </div>
           ))}
         </div>
@@ -383,54 +336,23 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* ─── Activity + quick commands ─────────────────────────────────── */}
-      <div className="ov-row-2">
-        <div className="card ov-activity">
-          <div className="ov-card-head">
-            <span className="card-title">Activity</span>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => navigate('/containers')}
-            >
-              view all
-            </button>
-          </div>
-          <div className="ov-act-list">
-            {ACTIVITY.map((a, i) => (
-              <div key={i} className="ov-act-row">
-                <span className="ov-act-t mono">{a.t}</span>
-                <span className={`ov-act-kind tone-${KIND_TONE[a.kind]}`}>
-                  {KIND_LABEL[a.kind]}
-                </span>
-                <span
-                  className="ov-act-rt"
-                  style={{ background: runtimes[a.rt].accent }}
-                />
-                <span className="ov-act-target">{a.target}</span>
-                <span className="ov-act-note mono">{a.note}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card ov-quick">
-          <div className="card-title">Quick commands</div>
-          {quick.map((q) => (
-            <button key={q.label} type="button" className="ov-quick-row" onClick={q.run}>
-              <span className={`ov-quick-icon tone-${q.tone}`}>
-                <Glyph name={q.icon} size={14} sw={1.6} />
-              </span>
-              <span className="ov-quick-text">
-                <span className="ov-quick-l">{q.label}</span>
-                <span className="ov-quick-s mono">{q.sub}</span>
-              </span>
-              <span className="ov-quick-arrow">
-                <Glyph name="arrow" size={13} sw={1.6} />
-              </span>
-            </button>
-          ))}
-        </div>
+      {/* ─── Quick commands ────────────────────────────────────────────── */}
+      <div className="card ov-quick">
+        <div className="card-title">Quick commands</div>
+        {quick.map((q) => (
+          <button key={q.label} type="button" className="ov-quick-row" onClick={q.run}>
+            <span className={`ov-quick-icon tone-${q.tone}`}>
+              <Glyph name={q.icon} size={14} sw={1.6} />
+            </span>
+            <span className="ov-quick-text">
+              <span className="ov-quick-l">{q.label}</span>
+              <span className="ov-quick-s mono">{q.sub}</span>
+            </span>
+            <span className="ov-quick-arrow">
+              <Glyph name="arrow" size={13} sw={1.6} />
+            </span>
+          </button>
+        ))}
       </div>
     </div>
   );

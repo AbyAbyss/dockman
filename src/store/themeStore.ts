@@ -135,7 +135,6 @@ interface ThemeState {
   radius: number;
   tabCollapsed: boolean;
   defaultTab: TabKey;
-  m1Fallback: boolean;
   translucent: boolean;
   translucency: number;
 
@@ -146,7 +145,6 @@ interface ThemeState {
   setRadius: (r: number) => void;
   setTabCollapsed: (c: boolean) => void;
   setDefaultTab: (t: TabKey) => void;
-  setM1Fallback: (v: boolean) => void;
   setTranslucent: (v: boolean) => void;
   setTranslucency: (v: number) => void;
 }
@@ -161,7 +159,6 @@ export const useThemeStore = create<ThemeState>()(
       radius: 18,
       tabCollapsed: false,
       defaultTab: 'overview',
-      m1Fallback: true,
       translucent: false,
       translucency: 35,
 
@@ -172,7 +169,6 @@ export const useThemeStore = create<ThemeState>()(
       setRadius: (radius) => set({ radius }),
       setTabCollapsed: (tabCollapsed) => set({ tabCollapsed }),
       setDefaultTab: (defaultTab) => set({ defaultTab }),
-      setM1Fallback: (m1Fallback) => set({ m1Fallback }),
       setTranslucent: (translucent) => set({ translucent }),
       setTranslucency: (translucency) => set({ translucency }),
     }),

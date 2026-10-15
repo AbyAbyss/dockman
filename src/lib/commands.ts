@@ -326,6 +326,8 @@ export const NetworkCommands = {
       const raw = await invoke<Raw[]>('list_networks', { runtime: rt });
       return raw.map((r) => ({ ...parseNetwork(baseRt(rt), r), root: rt === 'podman-root' }));
     }),
+  create: (rt: RuntimeScope, name: string) =>
+    invoke<void>('create_network', { runtime: rt, name }),
 };
 
 // ─── Compose ─────────────────────────────────────────────────────────────────

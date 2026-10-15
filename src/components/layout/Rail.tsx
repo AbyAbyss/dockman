@@ -1,6 +1,5 @@
 // Left navigation rail — 74px, fixed. Replaces the old TopBar + TabBar
-// arrangement: brand mark, the eight sections from `tabs.ts`, account avatar
-// pinned to the bottom.
+// arrangement: brand mark and the eight sections from `tabs.ts`.
 
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Glyph } from '@/components/ui/Icon';
@@ -35,8 +34,6 @@ export function Rail({ collapsed = false }: { collapsed?: boolean }) {
           );
         })}
       </div>
-
-      <div className="rail-avatar">JM</div>
     </nav>
   );
 }

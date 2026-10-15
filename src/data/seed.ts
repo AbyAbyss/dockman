@@ -5,14 +5,11 @@
 // command bridge (src/lib/commands.ts) replaces these with live CLI results.
 
 import type {
-  ActivityEntry,
   BinaryManifest,
   BuildLayer,
   BuildRecord,
   Container,
-  DownloadHistoryEntry,
   ImageItem,
-  LayerCacheInfo,
   Network,
   RuntimeMeta,
   RuntimeName,
@@ -21,18 +18,18 @@ import type {
 } from '@/types';
 
 export const INITIAL_CONTAINERS: Container[] = [
-  { id: 'c-7f2a', rt: 'docker', name: 'postgres-main',     image: 'postgres:16-alpine',     status: 'running', cpu: 2.4, mem: 312, port: '5432:5432', uptime: '4d 12h',  tag: 'database',      stack: 'data-store' },
-  { id: 'c-9b14', rt: 'docker', name: 'redis-cache',       image: 'redis:7.2',              status: 'running', cpu: 0.6, mem: 84,  port: '6379:6379', uptime: '4d 12h',  tag: 'cache',         stack: 'data-store' },
-  { id: 'c-1d8e', rt: 'docker', name: 'api-gateway',       image: 'dockman/api-gw:0.14.2',  status: 'running', cpu: 8.1, mem: 412, port: '8080:8080', uptime: '1d 03h',  tag: 'service',       stack: 'api-platform' },
-  { id: 'c-3c47', rt: 'docker', name: 'worker-billing',    image: 'dockman/worker:0.14.2',  status: 'running', cpu: 1.2, mem: 168, port: '—',         uptime: '1d 03h',  tag: 'service',       stack: 'api-platform' },
-  { id: 'c-6e29', rt: 'podman', name: 'minio-storage',     image: 'minio/minio:RELEASE',    status: 'paused',  cpu: 0,   mem: 96,  port: '9000:9000', uptime: '—',       tag: 'storage',       stack: 'data-store' },
-  { id: 'c-2a55', rt: 'podman', name: 'mailhog-dev',       image: 'mailhog/mailhog:latest', status: 'stopped', cpu: 0,   mem: 0,   port: '1025,8025', uptime: '—',       tag: 'dev-tool',      stack: 'api-platform' },
-  { id: 'c-8f31', rt: 'docker', name: 'prometheus',        image: 'prom/prometheus:v2.51',  status: 'running', cpu: 1.8, mem: 224, port: '9090:9090', uptime: '6d 21h',  tag: 'observability', stack: 'observability' },
-  { id: 'c-4b72', rt: 'docker', name: 'grafana',           image: 'grafana/grafana:10.4',   status: 'running', cpu: 0.9, mem: 142, port: '3001:3000', uptime: '6d 21h',  tag: 'observability', stack: 'observability' },
-  { id: 'c-5e90', rt: 'podman', name: 'nginx-edge',        image: 'nginx:1.27-alpine',      status: 'running', cpu: 0.3, mem: 22,  port: '80,443',    uptime: '12d 04h', tag: 'service',       stack: 'api-platform', root: true },
-  { id: 'c-0a13', rt: 'podman', name: 'jaeger-tracing',    image: 'jaegertracing/all-in-1', status: 'stopped', cpu: 0,   mem: 0,   port: '16686',     uptime: '—',       tag: 'observability', stack: 'observability' },
-  { id: 'c-b3f8', rt: 'podman', name: 'meilisearch',       image: 'getmeili/meilisearch',   status: 'running', cpu: 1.1, mem: 198, port: '7700:7700', uptime: '2d 08h',  tag: 'service',       stack: 'api-platform', arch: 'amd64', emulated: true },
-  { id: 'c-e571', rt: 'docker', name: 'clickhouse-events', image: 'clickhouse:24.3',        status: 'paused',  cpu: 0,   mem: 140, port: '8123,9000', uptime: '—',       tag: 'database',      stack: 'data-store' },
+  { id: 'c-7f2a', rt: 'docker', name: 'postgres-main',     image: 'postgres:16-alpine',     status: 'running', cpu: 2.4, mem: 312, port: '5432:5432', uptime: '4d 12h',  tag: 'database',      stack: 'data-store', networks: ['dockman-backend'] },
+  { id: 'c-9b14', rt: 'docker', name: 'redis-cache',       image: 'redis:7.2',              status: 'running', cpu: 0.6, mem: 84,  port: '6379:6379', uptime: '4d 12h',  tag: 'cache',         stack: 'data-store', networks: ['dockman-backend'] },
+  { id: 'c-1d8e', rt: 'docker', name: 'api-gateway',       image: 'dockman/api-gw:0.14.2',  status: 'running', cpu: 8.1, mem: 412, port: '8080:8080', uptime: '1d 03h',  tag: 'service',       stack: 'api-platform', networks: ['dockman-backend', 'dockman-edge'] },
+  { id: 'c-3c47', rt: 'docker', name: 'worker-billing',    image: 'dockman/worker:0.14.2',  status: 'running', cpu: 1.2, mem: 168, port: '—',         uptime: '1d 03h',  tag: 'service',       stack: 'api-platform', networks: ['dockman-backend'] },
+  { id: 'c-6e29', rt: 'podman', name: 'minio-storage',     image: 'minio/minio:RELEASE',    status: 'paused',  cpu: 0,   mem: 96,  port: '9000:9000', uptime: '—',       tag: 'storage',       stack: 'data-store', networks: ['dockman-backend'] },
+  { id: 'c-2a55', rt: 'podman', name: 'mailhog-dev',       image: 'mailhog/mailhog:latest', status: 'stopped', cpu: 0,   mem: 0,   port: '1025,8025', uptime: '—',       tag: 'dev-tool',      stack: 'api-platform', networks: ['dockman-backend'] },
+  { id: 'c-8f31', rt: 'docker', name: 'prometheus',        image: 'prom/prometheus:v2.51',  status: 'running', cpu: 1.8, mem: 224, port: '9090:9090', uptime: '6d 21h',  tag: 'observability', stack: 'observability', networks: ['observability'] },
+  { id: 'c-4b72', rt: 'docker', name: 'grafana',           image: 'grafana/grafana:10.4',   status: 'running', cpu: 0.9, mem: 142, port: '3001:3000', uptime: '6d 21h',  tag: 'observability', stack: 'observability', networks: ['observability'] },
+  { id: 'c-5e90', rt: 'podman', name: 'nginx-edge',        image: 'nginx:1.27-alpine',      status: 'running', cpu: 0.3, mem: 22,  port: '80,443',    uptime: '12d 04h', tag: 'service',       stack: 'api-platform', root: true, networks: ['dockman-backend', 'dockman-edge'] },
+  { id: 'c-0a13', rt: 'podman', name: 'jaeger-tracing',    image: 'jaegertracing/all-in-1', status: 'stopped', cpu: 0,   mem: 0,   port: '16686',     uptime: '—',       tag: 'observability', stack: 'observability', networks: ['observability'] },
+  { id: 'c-b3f8', rt: 'podman', name: 'meilisearch',       image: 'getmeili/meilisearch',   status: 'running', cpu: 1.1, mem: 198, port: '7700:7700', uptime: '2d 08h',  tag: 'service',       stack: 'api-platform', arch: 'amd64', emulated: true, networks: ['dockman-backend'] },
+  { id: 'c-e571', rt: 'docker', name: 'clickhouse-events', image: 'clickhouse:24.3',        status: 'paused',  cpu: 0,   mem: 140, port: '8123,9000', uptime: '—',       tag: 'database',      stack: 'data-store', networks: ['dockman-backend'] },
 ];
 
 /** Browser-mode sample of diagnosed problems, so the panel can be reviewed
@@ -96,17 +93,6 @@ export const INITIAL_NETWORKS: Network[] = [
   { name: 'podman',          rt: 'podman', driver: 'bridge', scope: 'local', subnet: '10.88.0.0/16',  gateway: '10.88.0.1',  attached: 4, ext: false },
 ];
 
-export const ACTIVITY: ActivityEntry[] = [
-  { t: '12:04:18', rt: 'docker', kind: 'start',    target: 'api-gateway',    note: 'image dockman/api-gw:0.14.2' },
-  { t: '12:04:11', rt: 'docker', kind: 'pull',     target: 'dockman/api-gw', note: '0.14.2 · 142 MB · 4.1s' },
-  { t: '12:03:02', rt: 'podman', kind: 'fallback', target: 'api-gateway',    note: 'arch mismatch — retried on docker' },
-  { t: '11:58:40', rt: 'podman', kind: 'start',    target: 'nginx-edge',     note: 'image nginx:1.27-alpine' },
-  { t: '11:41:09', rt: 'docker', kind: 'pull',     target: 'dockman/worker', note: '0.14.2 · 138 MB · 3.8s' },
-  { t: '10:12:55', rt: 'podman', kind: 'stop',     target: 'mailhog-dev',    note: 'manual' },
-  { t: '09:48:22', rt: 'docker', kind: 'start',    target: 'prometheus',     note: 'restart on update' },
-  { t: '09:14:01', rt: 'docker', kind: 'prune',    target: 'images',         note: 'reclaimed 1.2 GB' },
-];
-
 export const RUNTIMES: Record<RuntimeName, RuntimeMeta> = {
   docker: {
     name: 'Docker',
@@ -157,17 +143,6 @@ export const BINARY_MANIFEST: Record<RuntimeName, BinaryManifest> = {
     ],
   },
 };
-
-export const DOWNLOAD_HISTORY: DownloadHistoryEntry[] = [
-  { rt: 'docker', v: '26.1.4', when: '2h ago',    status: 'success',  path: '/usr/local/bin/docker' },
-  { rt: 'podman', v: '5.1.1',  when: 'yesterday', status: 'success',  path: '/opt/homebrew/bin/podman' },
-  { rt: 'podman', v: '5.0.3',  when: '3w ago',    status: 'replaced', path: '—' },
-];
-
-// 24 samples for sparklines.
-export const CPU_SPARK = [12, 14, 18, 22, 19, 17, 15, 21, 28, 34, 42, 38, 31, 29, 27, 33, 41, 48, 44, 39, 36, 32, 28, 26];
-export const MEM_SPARK = [38, 39, 41, 42, 44, 44, 45, 46, 48, 51, 53, 52, 51, 52, 54, 56, 58, 60, 61, 60, 59, 58, 57, 57];
-export const NET_SPARK = [4, 6, 8, 5, 9, 12, 18, 22, 16, 11, 8, 6, 5, 7, 14, 19, 24, 28, 22, 17, 14, 12, 10, 9];
 
 // ─── Builds ──────────────────────────────────────────────────────────────────
 
@@ -279,15 +254,3 @@ export const INITIAL_BUILDS: BuildRecord[] = [
   },
 ];
 
-export const LAYER_CACHE: LayerCacheInfo = {
-  totalSize: '2.4 GB',
-  cachedLayers: 38,
-  images: [
-    { name: 'node:20', layers: 8 },
-    { name: 'distroless', layers: 4 },
-    { name: 'alpine:3.20', layers: 1 },
-    { name: 'python:3.12', layers: 2 },
-    { name: 'postgres:16', layers: 4 },
-    { name: 'redis:7', layers: 2 },
-  ],
-};

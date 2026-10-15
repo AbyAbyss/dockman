@@ -253,9 +253,6 @@ function StatsTab({ container }: { container: Container }) {
   const [editLimits, setEditLimits] = useState(false);
   const cpuSeries = useSeries(container.cpu);
   const memSeries = useSeries(container.mem);
-  // No per-container network counter in `commands.ts` yet — derive a stable
-  // stand-in from cpu so the third block is not empty.
-  const netSeries = useSeries(container.cpu * 1.4);
 
   const blocks = [
     {
@@ -269,12 +266,6 @@ function StatsTab({ container }: { container: Container }) {
       v: container.mem ? `${container.mem} MB` : '—',
       series: memSeries,
       max: Math.max(64, ...memSeries),
-    },
-    {
-      k: 'NETWORK I/O',
-      v: `${(container.cpu * 1.4).toFixed(1)} MB/s`,
-      series: netSeries,
-      max: Math.max(4, ...netSeries),
     },
   ];
 

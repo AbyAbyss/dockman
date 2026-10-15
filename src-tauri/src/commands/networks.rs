@@ -1,4 +1,4 @@
-// Network commands — listing and inspection.
+// Network commands — listing, inspection and creation.
 
 /// List networks for the given runtime.
 #[tauri::command]
@@ -6,6 +6,12 @@ pub async fn list_networks(runtime: String) -> Result<Vec<serde_json::Value>, St
     let bin = super::resolve(&runtime)?;
     let raw = super::run(&bin, &["network", "ls", "--format", "json"])?;
     Ok(super::parse_json_lines(&raw))
+}
+
+#[tauri::command]
+pub async fn create_network(runtime: String, name: String) -> Result<(), String> {
+    let bin = super::resolve(&runtime)?;
+    super::run(&bin, &["network", "create", &name]).map(|_| ())
 }
 
 /// Full inspect JSON for a single network.

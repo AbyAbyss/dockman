@@ -12,16 +12,6 @@ import { ImageCommands, failureOf } from '@/lib/commands';
 import { RUNTIMES } from '@/data/seed';
 import { scopeOf, type ImageItem, type RuntimeName } from '@/types';
 
-/** Disk allocated to the image store. No backend command reports this yet. */
-const ALLOCATED_MB = 4096;
-
-/** Registries are not backed by a command; the list is presentational. */
-const REGISTRIES = [
-  { name: 'docker.io', account: 'library · anonymous pulls', connected: true },
-  { name: 'ghcr.io', account: 'AbyAbyss', connected: true },
-  { name: 'gcr.io', account: 'not signed in', connected: false },
-];
-
 /** Repository avatars cycle through the palette so rows stay distinguishable. */
 const AVATAR_TONES = ['a', 'b', 'c', 'd', 'e'];
 
@@ -384,15 +374,15 @@ export default function Images() {
         <div className="side-block">
           <div className="section-label">DISK</div>
           <div className="side-stat">{fmtGB(totalMB)}</div>
-          <div className="side-sub mono">of {fmtGB(ALLOCATED_MB)} allocated</div>
+          <div className="side-sub mono">across {images.length} image{images.length === 1 ? '' : 's'}</div>
           <div className="seg-bar">
             <div
               className="seg tone-a"
-              style={{ width: `${(usedMB / ALLOCATED_MB) * 100}%` }}
+              style={{ width: `${totalMB ? (usedMB / totalMB) * 100 : 0}%` }}
             />
             <div
               className="seg tone-b"
-              style={{ width: `${(idleMB / ALLOCATED_MB) * 100}%` }}
+              style={{ width: `${totalMB ? (idleMB / totalMB) * 100 : 0}%` }}
             />
           </div>
           <div className="seg-legend mono">
@@ -402,25 +392,7 @@ export default function Images() {
             <span>
               <i className="tone-b" /> idle {fmtGB(idleMB)}
             </span>
-            <span>
-              <i className="tone-track" /> free {fmtGB(Math.max(0, ALLOCATED_MB - totalMB))}
-            </span>
           </div>
-        </div>
-
-        <div className="side-block">
-          <div className="section-label">REGISTRIES</div>
-          {REGISTRIES.map((r) => (
-            <div key={r.name} className="reg-row">
-              <div className="reg-id">
-                <div className="reg-name mono">{r.name}</div>
-                <div className="reg-account mono">{r.account}</div>
-              </div>
-              <span className={`state-chip mono ${r.connected ? 'is-on' : ''}`}>
-                {r.connected ? 'CONNECTED' : 'DISCONNECTED'}
-              </span>
-            </div>
-          ))}
         </div>
 
         {idleMB > 0 && (

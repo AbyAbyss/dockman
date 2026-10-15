@@ -1,5 +1,4 @@
-// Settings — runtime selection, engine resources, capabilities, registries,
-// appearance, updates and maintenance.
+// Settings — runtime selection, appearance, version and maintenance.
 
 import { useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
@@ -9,6 +8,7 @@ import { ACCENTS, MODES, PALETTES, useThemeStore } from '@/store/themeStore';
 import { useWizardStore } from '@/store/wizardStore';
 import { useRuntimes } from '@/hooks/useData';
 import { SystemCommands } from '@/lib/commands';
+import { APP_VERSION, RELEASES_URL } from '@/lib/version';
 import type {
   AccentName,
   PaletteName,
@@ -17,78 +17,6 @@ import type {
   ThemeMode,
 } from '@/types';
 
-/** Registries are presentational — no backend command lists them yet. */
-const REGISTRIES = [
-  { name: 'docker.io', account: 'library · anonymous pulls', connected: true },
-  { name: 'ghcr.io', account: 'AbyAbyss', connected: true },
-  { name: 'gcr.io', account: 'not signed in', connected: false },
-];
-
-const RECENT_CHANGES = [
-  { v: '0.1.0', s: 'stack-grouped containers, bulk actions, resizable detail pane' },
-  { v: '0.0.9', s: 'compose scaling, exec sessions, build history' },
-  { v: '0.0.8', s: 'podman machine helpers, binary manager' },
-];
-
-/** 30 × 17px pill switch. */
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      className={`switch ${on ? 'is-on' : ''}`}
-      onClick={onToggle}
-      aria-pressed={on}
-    >
-      <span className="switch-knob" />
-    </button>
-  );
-}
-
-function Slider({
-  label,
-  value,
-  unit,
-  min,
-  max,
-  hint,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  unit: string;
-  min: number;
-  max: number;
-  hint: string;
-  onChange: (v: number) => void;
-}) {
-  const pct = ((value - min) / (max - min)) * 100;
-  return (
-    <div className="slider-block">
-      <div className="slider-head">
-        <span className="slider-label">{label}</span>
-        <span className="slider-val">{value}</span>
-        <span className="slider-unit mono">{unit}</span>
-      </div>
-      <div className="slider-wrap">
-        <div className="track">
-          <div className="track-fill" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="slider-thumb" style={{ left: `${pct}%` }} />
-        <input
-          className="slider-input"
-          type="range"
-          min={min}
-          max={max}
-          value={value}
-          aria-label={label}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
-      </div>
-      <div className="slider-hint mono">{hint}</div>
-    </div>
-  );
-}
-
 export default function Settings() {
   const theme = useThemeStore();
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
@@ -96,48 +24,24 @@ export default function Settings() {
   const { runtimes } = useRuntimes();
   const replayWizard = useWizardStore((s) => s.setCompleted);
 
-  const [cpu, setCpu] = useState(8);
-  const [ram, setRam] = useState(8);
-  const [swap, setSwap] = useState(1);
-  const [disk, setDisk] = useState(60);
-  const [channel, setChannel] = useState('Stable');
-  const [confirm, setConfirm] = useState<'prune' | 'reset' | null>(null);
-  const [features, setFeatures] = useState({
-    composeV2: true,
-    buildKit: true,
-    rosetta: true,
-    swarm: false,
-    kubernetes: false,
-    experimentalCli: false,
-    autoStart: true,
-    sendUsage: false,
-  });
-  const toggleFeat = (k: keyof typeof features) =>
-    setFeatures((f) => ({ ...f, [k]: !f[k] }));
-
-  const capabilities: { k: keyof typeof features; l: string; s: string }[] = [
-    { k: 'composeV2', l: 'Compose v2', s: 'docker compose subcommand' },
-    { k: 'buildKit', l: 'BuildKit', s: 'parallel, cache-aware builds' },
-    { k: 'rosetta', l: 'Rosetta', s: 'run amd64 images on Apple Silicon' },
-    { k: 'swarm', l: 'Swarm mode', s: 'cluster orchestration' },
-    { k: 'kubernetes', l: 'Kubernetes', s: 'single-node cluster' },
-    { k: 'experimentalCli', l: 'Experimental CLI', s: 'unreleased subcommands' },
-    { k: 'autoStart', l: 'Auto-start engine', s: 'start the engine at login' },
-    { k: 'sendUsage', l: 'Usage stats', s: 'anonymous feature counters' },
-  ];
+  const [confirmPrune, setConfirmPrune] = useState(false);
 
   const runtimeRows: { k: RuntimeFilter; name: string; sub: string; rt?: RuntimeName }[] =
     [
       {
         k: 'docker',
         name: 'Docker',
-        sub: `v${runtimes.docker.version} · ${runtimes.docker.path}`,
+        sub: runtimes.docker.found
+          ? `v${runtimes.docker.version} · ${runtimes.docker.path}`
+          : 'not installed',
         rt: 'docker',
       },
       {
         k: 'podman',
         name: 'Podman',
-        sub: `v${runtimes.podman.version} · ${runtimes.podman.path}`,
+        sub: runtimes.podman.found
+          ? `v${runtimes.podman.version} · ${runtimes.podman.path}`
+          : 'not installed',
         rt: 'podman',
       },
       { k: 'all', name: 'Both', sub: 'unified view across both engines' },
@@ -168,68 +72,13 @@ export default function Settings() {
               </span>
             </button>
           ))}
-          <button
-            type="button"
-            className="check-row"
-            onClick={() => theme.setM1Fallback(!theme.m1Fallback)}
-            aria-pressed={theme.m1Fallback}
-          >
-            <span className={`check-box ${theme.m1Fallback ? 'is-on' : ''}`}>
-              {theme.m1Fallback && <Glyph name="check" size={10} sw={3} />}
-            </span>
-            M1 auto-fallback
-          </button>
           <div className="bin-sub mono">
-            when an image has no arm64 variant, re-run it under emulation instead of
-            failing
+            images without an arm64 variant are re-run under amd64 emulation
+            automatically; the row shows an “emulated” chip
           </div>
         </div>
 
-        {/* 2 — Engine resources */}
-        <div className="card set-card">
-          <div className="card-title">Engine resources</div>
-          <Slider label="CPUs" value={cpu} unit="cores" min={1} max={12} hint="of 12 available" onChange={setCpu} />
-          <Slider label="Memory" value={ram} unit="GB" min={1} max={16} hint="of 16 GB installed" onChange={setRam} />
-          <Slider label="Swap" value={swap} unit="GB" min={0} max={4} hint="disk-backed overflow" onChange={setSwap} />
-          <Slider label="Disk image" value={disk} unit="GB" min={16} max={256} hint="maximum size of the engine's virtual disk" onChange={setDisk} />
-        </div>
-
-        {/* 3 — Capabilities */}
-        <div className="card set-card set-wide">
-          <div className="card-title">Capabilities</div>
-          <div className="cap-grid">
-            {capabilities.map((c) => (
-              <div key={c.k} className="cap-row">
-                <div className="cap-id">
-                  <div className="cap-l">{c.l}</div>
-                  <div className="cap-s mono">{c.s}</div>
-                </div>
-                <Toggle on={features[c.k]} onToggle={() => toggleFeat(c.k)} />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 4 — Registries */}
-        <div className="card set-card">
-          <div className="card-title">Registries</div>
-          {REGISTRIES.map((r) => (
-            <div key={r.name} className="reg-row">
-              <div className="reg-id">
-                <div className="reg-name mono">{r.name}</div>
-                <div className="reg-account mono">{r.account}</div>
-              </div>
-              <span className={`state-chip mono ${r.connected ? 'is-on' : ''}`}>
-                {r.connected ? 'CONNECTED' : 'DISCONNECTED'}
-              </span>
-              <button type="button" className="text-btn">
-                {r.connected ? 'sign out' : 'sign in'}
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* 5 — Appearance */}
+        {/* 2 — Appearance */}
         <div className="card set-card">
           <div className="card-title">Appearance</div>
 
@@ -331,40 +180,26 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* 6 — Updates */}
+        {/* 3 — About */}
         <div className="card set-card">
-          <div className="card-title">Updates</div>
+          <div className="card-title">About</div>
           <div className="set-version">
-            <span className="set-version-n">0.1.0</span>
-            <span className="latest-chip mono">LATEST</span>
+            <span className="set-version-n">{APP_VERSION}</span>
           </div>
-          <div className="bin-sub mono">up to date · checked 12m ago</div>
-
-          <div className="section-label">CHANNEL</div>
+          <div className="bin-sub mono">new versions are published on GitHub</div>
           <div className="pill-row">
-            {['Stable', 'Beta', 'Edge'].map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`ctr-pill ${channel === c ? 'is-on' : ''}`}
-                onClick={() => setChannel(c)}
-              >
-                {c}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={() => SystemCommands.openUrl(RELEASES_URL).catch(() => undefined)}
+            >
+              Open releases
+            </button>
           </div>
-
-          <div className="section-label">RECENT CHANGES</div>
-          {RECENT_CHANGES.map((c) => (
-            <div key={c.v} className="change-row">
-              <span className="change-v mono">{c.v}</span>
-              <span className="change-s">{c.s}</span>
-            </div>
-          ))}
         </div>
 
-        {/* 7 — Maintenance */}
-        <div className="card set-card set-wide set-danger">
+        {/* 4 — Maintenance */}
+        <div className="card set-card set-danger">
           <div className="card-title">Maintenance</div>
           <div className="maint-row">
             <div className="maint-id">
@@ -385,28 +220,15 @@ export default function Settings() {
             <button
               type="button"
               className="pill-btn is-danger"
-              onClick={() => setConfirm('prune')}
+              onClick={() => setConfirmPrune(true)}
             >
               Prune
             </button>
           </div>
           <div className="maint-row">
             <div className="maint-id">
-              <div className="maint-l">Reset to factory</div>
-              <div className="maint-s mono">re-create engine VM · keeps registries</div>
-            </div>
-            <button
-              type="button"
-              className="pill-btn is-danger"
-              onClick={() => setConfirm('reset')}
-            >
-              Reset
-            </button>
-          </div>
-          <div className="maint-row">
-            <div className="maint-id">
               <div className="maint-l">Quit Dockman</div>
-              <div className="maint-s mono">stop the engine and exit</div>
+              <div className="maint-s mono">exit the app · engines keep running</div>
             </div>
             <button
               type="button"
@@ -419,7 +241,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {confirm === 'prune' && (
+      {confirmPrune && (
         <ConfirmDialog
           title="Prune everything?"
           body="Stopped containers, unused images, unused networks and the entire build cache will be deleted. Running containers and named volumes are kept."
@@ -429,16 +251,7 @@ export default function Settings() {
               runtimeFilter === 'podman' ? 'podman' : 'docker',
             ).catch(() => undefined)
           }
-          onClose={() => setConfirm(null)}
-        />
-      )}
-      {confirm === 'reset' && (
-        <ConfirmDialog
-          title="Reset to factory?"
-          body="The engine VM is destroyed and re-created. Every container, image and volume inside it is lost. Registry logins are kept."
-          confirmLabel="Reset"
-          onConfirm={() => replayWizard(false)}
-          onClose={() => setConfirm(null)}
+          onClose={() => setConfirmPrune(false)}
         />
       )}
     </div>

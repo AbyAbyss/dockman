@@ -5,18 +5,10 @@ import { useMemo, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
 import { useAppStore } from '@/store/appStore';
 import { useNetworks } from '@/hooks/useData';
-import { SystemCommands } from '@/lib/commands';
+import { NetworkCommands, SystemCommands } from '@/lib/commands';
 import { splitPorts } from '@/lib/parsers';
-import { NET_SPARK, RUNTIMES } from '@/data/seed';
+import { RUNTIMES } from '@/data/seed';
 import type { Container, Network } from '@/types';
-
-/** Resolver entries — the CLI has no command for these yet. */
-const DNS_RECORDS = [
-  { host: 'postgres-main.dockman-backend', ip: '172.20.0.4' },
-  { host: 'redis-cache.dockman-backend', ip: '172.20.0.5' },
-  { host: 'api-gateway.dockman-edge', ip: '172.21.0.2' },
-  { host: 'grafana.observability', ip: '172.22.0.3' },
-];
 
 /** SVG topology — containers radiating from a central network node. */
 function Topology({ net, containers }: { net: Network; containers: Container[] }) {
@@ -113,9 +105,22 @@ export default function Networks() {
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const selectedNetwork = useAppStore((s) => s.selectedNetwork);
   const setSelectedNetwork = useAppStore((s) => s.setSelectedNetwork);
-  const networks = useNetworks(runtimeFilter).data;
+  const networksRes = useNetworks(runtimeFilter);
+  const listed = networksRes.data;
 
-  const [flushed, setFlushed] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const reportError = useAppStore((s) => s.reportError);
+
+  const createNetwork = () => {
+    const name = newName.trim();
+    if (!name) return;
+    NetworkCommands.create(runtimeFilter === 'podman' ? 'podman' : 'docker', name)
+      .then(() => networksRes.refetch())
+      .catch(reportError);
+    setNewName('');
+    setCreating(false);
+  };
 
   const visible = useMemo(
     () =>
@@ -125,25 +130,13 @@ export default function Networks() {
     [containers, runtimeFilter],
   );
 
+  const membersOf = (nw: Network): Container[] =>
+    visible.filter((c) => c.rt === nw.rt && c.networks.includes(nw.name));
+  const networks = listed.map((n) => ({ ...n, attached: membersOf(n).length }));
+
   const active =
     networks.find((n) => n.name === selectedNetwork) ?? networks[0] ?? null;
-
-  // Membership convention carried over from the previous build.
-  const membersOf = (nwName: string): Container[] => {
-    if (nwName.includes('backend'))
-      return visible
-        .filter((c) => ['data-store', 'api-platform'].includes(c.stack))
-        .slice(0, 6);
-    if (nwName.includes('edge'))
-      return visible
-        .filter((c) => c.name === 'nginx-edge' || c.name === 'api-gateway')
-        .slice(0, 2);
-    if (nwName === 'observability')
-      return visible.filter((c) => c.stack === 'observability').slice(0, 3);
-    return visible.slice(0, 4);
-  };
-
-  const members = active ? membersOf(active.name) : [];
+  const members = active ? membersOf(active) : [];
   const totalAttached = networks.reduce((s, n) => s + n.attached, 0);
 
   const scopeOf = (n: Network) =>
@@ -155,22 +148,34 @@ export default function Networks() {
     <div className="split-screen">
       <div className="split-main split-scroll">
         <div className="ctr-toolbar">
-          <span className="toolbar-note mono">
-            {networks.length} networks · {totalAttached} attachments · 14 MB/s aggregate
-          </span>
+          {creating ? (
+            <div className="tag-form">
+              <input
+                className="field mono"
+                autoFocus
+                placeholder="network name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createNetwork();
+                  if (e.key === 'Escape') setCreating(false);
+                }}
+              />
+              <button type="button" className="tool-btn is-primary" onClick={createNetwork}>
+                Create
+              </button>
+            </div>
+          ) : (
+            <span className="toolbar-note mono">
+              {networks.length} networks · {totalAttached} attachments
+            </span>
+          )}
           <div className="ctr-tools">
             <button
               type="button"
-              className="tool-btn"
-              onClick={() => {
-                setFlushed(true);
-                window.setTimeout(() => setFlushed(false), 1600);
-              }}
+              className="tool-btn is-primary"
+              onClick={() => setCreating(true)}
             >
-              <Glyph name="restart" size={12} sw={1.8} />
-              {flushed ? 'DNS flushed' : 'Flush DNS'}
-            </button>
-            <button type="button" className="tool-btn is-primary">
               <Glyph name="plus" size={12} sw={2} />
               New network
             </button>
@@ -282,62 +287,20 @@ export default function Networks() {
                   })}
                 </div>
               </div>
-
-              <div className="card">
-                <div className="card-title">DNS resolution</div>
-                <div className="dns-list">
-                  {DNS_RECORDS.map((d) => (
-                    <div key={d.host} className="dns-row">
-                      <span className="dns-host mono">{d.host}</span>
-                      <span className="dns-ip mono">{d.ip}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
         )}
       </div>
 
       <aside className="side-pane">
-        <div className="side-block">
-          <div className="section-label">BANDWIDTH</div>
-          <div className="bw-row">
-            <div className="bw-stat">
-              <div className="bw-label mono">INBOUND</div>
-              <div className="bw-val">
-                10.8<span className="mono"> MB/s</span>
-              </div>
-            </div>
-            <div className="bw-stat">
-              <div className="bw-label mono">OUTBOUND</div>
-              <div className="bw-val">
-                3.2<span className="mono"> MB/s</span>
-              </div>
-            </div>
-          </div>
-          <div className="spark" style={{ height: 52 }}>
-            {NET_SPARK.map((v, i) => (
-              <div
-                key={i}
-                className="spark-bar"
-                style={{ height: `${Math.max(6, (v / Math.max(...NET_SPARK)) * 100)}%` }}
-              />
-            ))}
-          </div>
-        </div>
-
         {active && (
           <div className="side-block">
             <div className="section-label">ATTACHED TO {active.name}</div>
             {members.length === 0 && <div className="det-empty mono">no attachments</div>}
-            {members.map((c, i) => (
+            {members.map((c) => (
               <div key={c.id} className="att-row">
                 <span className={`ctr-dot st-${c.status}`} />
                 <span className="att-name">{c.name}</span>
-                <span className="att-ip mono">
-                  {active.subnet.replace(/0\/\d+$/, String(i + 2))}
-                </span>
               </div>
             ))}
           </div>

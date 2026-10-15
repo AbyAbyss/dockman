@@ -1,5 +1,4 @@
-// Volumes — storage inventory with usage tracks, beside a pane carrying bind
-// mounts and the snapshot schedule.
+// Volumes — storage inventory with usage tracks.
 
 import { useMemo, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
@@ -10,20 +9,6 @@ import { useVolumes } from '@/hooks/useData';
 import { VolumeCommands } from '@/lib/commands';
 import { RUNTIMES } from '@/data/seed';
 import type { RuntimeName } from '@/types';
-
-/** Bind mounts are read off compose files the app does not parse yet. */
-const BIND_MOUNTS = [
-  { host: '~/work/api-platform/src', ctr: 'api-gateway', target: '/app/src', mode: 'RW' },
-  { host: '~/work/worker/src', ctr: 'worker-billing', target: '/app/src', mode: 'RW' },
-  { host: '/etc/nginx/conf.d', ctr: 'nginx-edge', target: '/etc/nginx/conf.d', mode: 'RO' },
-  { host: '/tmp/build-cache', ctr: 'dockman/api-gw build', target: '/var/cache', mode: 'RW' },
-];
-
-/** Snapshot history — presentational; there is no snapshot command yet. */
-const SNAPSHOTS = [
-  'ok', 'ok', 'ok', 'part', 'ok', 'ok', 'ok',
-  'part', 'ok', 'ok', 'ok', 'part', 'ok', 'next',
-] as const;
 
 function sizeToMB(size: string): number {
   const v = parseFloat(size);
@@ -95,8 +80,6 @@ export default function Volumes() {
     volumesRes.refetch();
   };
 
-  const snapOk = SNAPSHOTS.filter((s) => s === 'ok').length;
-  const snapPart = SNAPSHOTS.filter((s) => s === 'part').length;
 
   return (
     <div className="split-screen">
@@ -220,54 +203,6 @@ export default function Volumes() {
           })}
         </div>
       </div>
-
-      <aside className="side-pane">
-        <div className="side-block">
-          <div className="section-label">BIND MOUNTS</div>
-          {BIND_MOUNTS.map((m) => (
-            <div key={m.host} className="det-mount">
-              <div className="det-mount-head">
-                <span className="det-mount-src mono">{m.host}</span>
-                <span className={`det-mount-mode mono ${m.mode === 'RO' ? 'is-ro' : ''}`}>
-                  {m.mode}
-                </span>
-              </div>
-              <div className="det-mount-sub mono">
-                → {m.target} · {m.ctr}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="side-block">
-          <div className="snap-head">
-            <span className="section-label">DAILY SNAPSHOTS</span>
-            <span className="state-chip mono is-on">ON</span>
-          </div>
-          <div className="side-sub mono">last run 04:00 local · success</div>
-          <div className="snap-strip">
-            {SNAPSHOTS.map((s, i) => (
-              <div key={i} className={`snap-cell tone-${s}`} />
-            ))}
-          </div>
-          <div className="seg-legend mono">
-            <span>
-              <i className="tone-a" /> success {snapOk}
-            </span>
-            <span>
-              <i className="tone-c" /> partial {snapPart}
-            </span>
-          </div>
-          <div className="side-actions">
-            <button type="button" className="det-action is-accent">
-              Run now
-            </button>
-            <button type="button" className="det-action">
-              Configure
-            </button>
-          </div>
-        </div>
-      </aside>
 
       {confirmPrune && (
         <ConfirmDialog

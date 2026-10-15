@@ -12,7 +12,7 @@ import { useAppStore } from '@/store/appStore';
 import { useBuilds } from '@/hooks/useData';
 import { BuildCommands, buildOutputEvent, BUILDS_CHANGED } from '@/lib/commands';
 import { listen, type UnlistenFn } from '@/lib/tauri';
-import { LAYER_CACHE, RUNTIMES } from '@/data/seed';
+import { RUNTIMES } from '@/data/seed';
 import type { BuildLayer, BuildRecord, RuntimeName } from '@/types';
 
 const INSTRUCTIONS = new Set([
@@ -355,9 +355,6 @@ export default function Builds() {
                 label="No cache"
                 onToggle={() => setForm({ ...form, useCache: !form.useCache })}
               />
-              <span className="toolbar-note mono">
-                cache {LAYER_CACHE.totalSize} · {LAYER_CACHE.cachedLayers} layers
-              </span>
             </div>
             {task && (
               <div className="build-task">
