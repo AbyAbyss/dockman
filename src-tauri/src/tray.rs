@@ -18,9 +18,20 @@ struct TrayItems {
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     // The app menu is tauri's default with its Quit item swapped out: the
     // predefined one terminates the process on the spot, skipping the check.
+    // About and Hide get explicit labels — macOS derives them from the
+    // process name, which is the lower-case executable in a dev build.
     let menu = Menu::default(app)?;
     #[cfg(target_os = "macos")]
     if let Some(sub) = menu.items()?.first().and_then(|i| i.as_submenu().cloned()) {
+        for item in sub.items()? {
+            if let Some(p) = item.as_predefined_menuitem() {
+                match p.text()?.split(' ').next() {
+                    Some("About") => p.set_text("About Dockman")?,
+                    Some("Hide") if !p.text()?.starts_with("Hide Others") => p.set_text("Hide Dockman")?,
+                    _ => {}
+                }
+            }
+        }
         if let Some(last) = sub.items()?.last() {
             sub.remove(last)?;
         }
