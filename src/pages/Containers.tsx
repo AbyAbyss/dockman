@@ -615,7 +615,17 @@ export default function Containers() {
                         />
                       </div>
 
-                      <span className="col-image mono">{c.image}</span>
+                      <span className="col-image mono">
+                        {c.image}
+                        {c.emulated && (
+                          <span
+                            className="ctr-emu"
+                            title={`${c.arch} image running under emulation on this Mac`}
+                          >
+                            {c.arch} · emulated
+                          </span>
+                        )}
+                      </span>
                       <PortsCell raw={c.port} />
 
                       <div className="col-cpu">

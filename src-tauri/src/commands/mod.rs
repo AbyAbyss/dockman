@@ -14,6 +14,7 @@ pub mod downloader;
 pub mod exec;
 pub mod images;
 pub mod networks;
+pub mod problems;
 pub mod runtime;
 pub mod system;
 pub mod volumes;
@@ -199,6 +200,30 @@ pub fn run(bin: &str, args: &[&str]) -> Result<String, String> {
     } else {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
+}
+
+/// Output of a CLI command that ran to completion, successful or not. Unlike
+/// `run`, stderr is kept on success too — the CLIs print the emulation
+/// warning there.
+pub struct CmdOutput {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Run a CLI command to completion and return both streams. `Err` only when
+/// the binary could not be started.
+pub fn run_capture(bin: &str, args: &[&str]) -> Result<CmdOutput, String> {
+    let output = Command::new(bin)
+        .args(args)
+        .env("PATH", shell_path())
+        .output()
+        .map_err(|e| format!("failed to run {bin}: {e}"))?;
+    Ok(CmdOutput {
+        ok: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    })
 }
 
 /// Parse CLI JSON output that may be a JSON array (Podman) or newline-delimited

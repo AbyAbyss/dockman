@@ -23,6 +23,45 @@ export interface Container {
   uptime: string;
   tag: string;
   stack: string;
+  /** Image id as the runtime reports it (podman only; docker's list omits it). */
+  imageId?: string;
+  /** Architecture of the container's image, when known ('amd64', 'arm64'). */
+  arch?: string;
+  /** True when the image's architecture differs from this Mac's. */
+  emulated?: boolean;
+}
+
+// ─── Diagnosed problems ──────────────────────────────────────────────────────
+
+export type ProblemSeverity = 'info' | 'warning' | 'error';
+
+export interface ProblemFix {
+  label: string;
+  /** One-click action the app performs: `set_rootful`, `open_engines`, `retry_platform`. */
+  action?: string | null;
+  /** Command shown for the terminal (copyable). */
+  command?: string | null;
+}
+
+/** A known failure mode, diagnosed by the backend, with its cause and fixes. */
+export interface Problem {
+  code: string;
+  severity: ProblemSeverity;
+  engine: RuntimeName;
+  container?: string | null;
+  image?: string | null;
+  message: string;
+  cause: string;
+  fixes: ProblemFix[];
+  logTail: string;
+}
+
+/** A problem as held in the store: keyed for dedupe, with its origin. */
+export interface ProblemEntry extends Problem {
+  key: string;
+  /** `probe` problems are refreshed by the engine poll; `event` ones stay until dismissed. */
+  source: 'probe' | 'event';
+  at: number;
 }
 
 export interface ImageItem {

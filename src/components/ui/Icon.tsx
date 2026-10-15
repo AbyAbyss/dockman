@@ -38,6 +38,7 @@ export const ICONS = {
   filter: 'M3 5h18l-7 9v6l-4-2v-4L3 5z',
   dot: 'M12 12h.01',
   close: ['M6 6l12 12', 'M18 6L6 18'],
+  warn: ['M12 3l10 18H2L12 3z', 'M12 10v4', 'M12 17.5h.01'],
   terminal: ['M5 5h14v14H5z', 'M8 9l3 3-3 3', 'M13 15h4'],
 } as const;
 

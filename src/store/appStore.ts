@@ -8,12 +8,59 @@ import { create } from 'zustand';
 import type {
   Container,
   ContainerStatus,
+  Problem,
+  ProblemEntry,
   RuntimeFilter,
+  RuntimeName,
   StatusFilter,
 } from '@/types';
 import { INITIAL_CONTAINERS } from '@/data/seed';
 import { isTauri } from '@/lib/tauri';
-import { ContainerCommands } from '@/lib/commands';
+import { ContainerCommands, ImageCommands } from '@/lib/commands';
+
+/** Dedupe key: the same diagnosis for the same engine / container / image
+ *  replaces the earlier one instead of piling up. */
+export function problemKey(p: Problem): string {
+  return `${p.code}|${p.engine}|${p.container ?? ''}|${p.image ?? ''}`;
+}
+
+// Image architecture per runtime, keyed by image id and by name. Filled on
+// demand from `image_archs`, kept for the session — an image's arch never
+// changes, so only unknown images cost a call.
+const archCache = new Map<string, { arch: string; emulated: boolean }>();
+
+/** Overlay `arch` / `emulated` on each container from its image. */
+async function overlayArchs(containers: Container[]): Promise<Container[]> {
+  const keyFor = (c: Container) => [`${c.rt}:${c.imageId}`, `${c.rt}:${c.image}`];
+  const unknown = new Set<RuntimeName>();
+  for (const c of containers) {
+    if (!keyFor(c).some((k) => archCache.has(k))) unknown.add(c.rt);
+  }
+  await Promise.all(
+    Array.from(unknown).map(async (rt) => {
+      try {
+        for (const img of await ImageCommands.archs(rt)) {
+          const v = { arch: img.arch, emulated: img.emulated };
+          if (img.id) archCache.set(`${rt}:${img.id}`, v);
+          for (const n of img.names) {
+            // Containers often name the image without the registry prefix
+            // or the implicit `:latest` tag (docker does both).
+            const short = n.replace(/^docker\.io\/(library\/)?/, '');
+            for (const k of [n, short, short.replace(/:latest$/, '')]) {
+              archCache.set(`${rt}:${k}`, v);
+            }
+          }
+        }
+      } catch {
+        /* label stays unknown */
+      }
+    }),
+  );
+  return containers.map((c) => {
+    const hit = keyFor(c).map((k) => archCache.get(k)).find(Boolean);
+    return hit ? { ...c, arch: hit.arch, emulated: hit.emulated } : c;
+  });
+}
 
 /** Recompute derived fields when a container changes status (seed mode only). */
 function applyStatus(c: Container, next: ContainerStatus): Container {
@@ -37,9 +84,16 @@ export interface Toast {
 
 let toastSeq = 0;
 
+/** Probe problems the user dismissed; they come back only when the
+ *  condition clears and reappears (the app restarts). */
+const dismissedKeys = new Set<string>();
+
 interface AppState {
   containers: Container[];
   toasts: Toast[];
+  /** Diagnosed problems, newest last. */
+  problems: ProblemEntry[];
+  problemsOpen: boolean;
   runtimeFilter: RuntimeFilter;
   query: string;
   live: boolean;
@@ -65,6 +119,12 @@ interface AppState {
   reportError: (e: unknown) => void;
   /** Raise a success notice. */
   reportOk: (text: string) => void;
+  /** Record a diagnosed problem from a failed or suspicious action. */
+  addProblem: (p: Problem) => void;
+  /** Replace the probe-sourced problems for one engine with a fresh set. */
+  setEngineProblems: (engine: RuntimeName, probs: Problem[]) => void;
+  dismissProblem: (key: string) => void;
+  setProblemsOpen: (open: boolean) => void;
   setStatusFilter: (f: StatusFilter) => void;
   setFocusedContainer: (id: string | null) => void;
   setSelectedNetwork: (name: string) => void;
@@ -125,6 +185,8 @@ export const useAppStore = create<AppState>((set, get) => {
   loading: false,
   error: null,
   toasts: [],
+  problems: [],
+  problemsOpen: false,
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
@@ -133,6 +195,36 @@ export const useAppStore = create<AppState>((set, get) => {
     set((s) => ({
       toasts: [...s.toasts, { id: (toastSeq += 1), text, tone: 'ok' as const }].slice(-4),
     })),
+
+  addProblem: (p) =>
+    set((s) => {
+      const key = problemKey(p);
+      const entry: ProblemEntry = { ...p, key, source: 'event', at: Date.now() };
+      return { problems: [...s.problems.filter((x) => x.key !== key), entry] };
+    }),
+  setEngineProblems: (engine, probs) =>
+    set((s) => {
+      const fresh: ProblemEntry[] = probs.map((p) => ({
+        ...p,
+        key: problemKey(p),
+        source: 'probe',
+        at: Date.now(),
+      }));
+      // Keep event problems and the other engine's probes; a probe that was
+      // dismissed stays hidden while its condition persists.
+      const kept = s.problems.filter(
+        (x) => !(x.source === 'probe' && x.engine === engine),
+      );
+      const dismissed = dismissedKeys;
+      return {
+        problems: [...kept, ...fresh.filter((p) => !dismissed.has(p.key))],
+      };
+    }),
+  dismissProblem: (key) => {
+    dismissedKeys.add(key);
+    set((s) => ({ problems: s.problems.filter((x) => x.key !== key) }));
+  },
+  setProblemsOpen: (problemsOpen) => set({ problemsOpen }),
 
   statusFilter: 'all',
   selection: [],
@@ -179,7 +271,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!get().live) return;
     set({ loading: true });
     try {
-      const containers = await ContainerCommands.list('all');
+      const containers = await overlayArchs(await ContainerCommands.list('all'));
       set({ containers, error: null });
       // Best-effort cpu/mem overlay from `stats --no-stream`.
       try {

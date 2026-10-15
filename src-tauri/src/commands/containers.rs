@@ -2,6 +2,7 @@
 // logs / stats. List output is returned as raw JSON values because Docker and
 // Podman emit slightly different shapes; the frontend normalises them.
 
+use super::problems::{Failure, Problem};
 use super::Registry;
 
 // ─── Listing ─────────────────────────────────────────────────────────────────
@@ -108,7 +109,54 @@ pub async fn get_container_env(
     Ok(env)
 }
 
-/// Create and start a container; returns the new container id.
+/// What `run_container` reports back: the new id, whether the image is
+/// running under emulation (and which platform was used), and a diagnosed
+/// problem when the container died right after starting.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunResult {
+    pub id: String,
+    pub emulated: bool,
+    pub platform: Option<String>,
+    pub problem: Option<Problem>,
+}
+
+/// A detached container that exits non-zero within a few seconds of starting
+/// usually died in its entrypoint. Fetch its last log lines and diagnose them.
+fn early_exit_problem(bin: &str, runtime: &str, image: &str, id: &str) -> Option<Problem> {
+    for wait_ms in [1000u64, 1500, 2500] {
+        std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+        let state = super::run(
+            bin,
+            &["inspect", "--format", "{{.State.Status}} {{.State.ExitCode}}", id],
+        )
+        .ok()?;
+        let mut parts = state.split_whitespace();
+        let status = parts.next().unwrap_or("");
+        let code = parts.next().unwrap_or("0");
+        if status == "running" {
+            continue;
+        }
+        if code == "0" {
+            return None;
+        }
+        let logs = super::run_capture(bin, &["logs", "--tail", "40", id]).ok()?;
+        let text = format!("{}\n{}", logs.stdout, logs.stderr);
+        let rootless = runtime == "podman"
+            && super::run(bin, &["machine", "inspect", "--format", "{{.Rootful}}"])
+                .map(|s| s.trim() != "true")
+                .unwrap_or(false);
+        return super::problems::diagnose_exit(runtime, rootless, Some(image), Some(id), &text);
+    }
+    None
+}
+
+/// Create and start a container.
+///
+/// When the image has no build for this Mac's architecture, the run is
+/// retried with `--platform` for the architecture it does have and the
+/// result is marked `emulated` — the same thing dockerd does on its own, and
+/// the one flag podman makes you type by hand.
 #[tauri::command]
 pub async fn run_container(
     runtime: String,
@@ -123,7 +171,8 @@ pub async fn run_container(
     memory_swap: Option<String>,
     cpus: Option<String>,
     storage_size: Option<String>,
-) -> Result<String, String> {
+    platform: Option<String>,
+) -> Result<RunResult, Failure> {
     let bin = super::resolve(&runtime)?;
     if runtime == "docker" {
         // Registry pulls need the credential helper the standalone CLI omits.
@@ -132,6 +181,11 @@ pub async fn run_container(
     let mut args: Vec<String> = vec!["run".into()];
     if detach {
         args.push("-d".into());
+    }
+    let mut platform = platform.filter(|p| !p.is_empty());
+    if let Some(p) = &platform {
+        args.push("--platform".into());
+        args.push(p.clone());
     }
     if let Some(n) = name {
         if !n.is_empty() {
@@ -169,14 +223,45 @@ pub async fn run_container(
         args.push("--storage-opt".into());
         args.push(format!("size={sz}"));
     }
-    args.push(image);
+    args.push(image.clone());
     // An optional command / args override, appended after the image — also
     // covers one-off "run a command on an image" use.
     for c in command {
         args.push(c);
     }
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    super::run(&bin, &arg_refs).map(|s| s.trim().to_string())
+    let mut out = super::run_capture(&bin, &arg_refs)?;
+    let mut emulated = super::problems::mentions_emulation(&out.stderr);
+
+    if !out.ok && platform.is_none() {
+        if let Some(arch) = super::problems::missing_arch(&out.stderr) {
+            let other = super::problems::other_platform(&arch);
+            let mut retry: Vec<&str> = vec!["run"];
+            if detach {
+                retry.push("-d");
+            }
+            retry.extend(["--platform", other]);
+            retry.extend(arg_refs.iter().skip(if detach { 2 } else { 1 }).copied());
+            out = super::run_capture(&bin, &retry)?;
+            if out.ok {
+                emulated = true;
+                platform = Some(other.to_string());
+            }
+        }
+    }
+
+    if !out.ok {
+        let problem = super::problems::diagnose(&runtime, Some(&image), None, &out.stderr);
+        return Err(Failure { message: out.stderr, problem });
+    }
+
+    let id = out.stdout.trim().to_string();
+    let problem = if detach {
+        early_exit_problem(&bin, &runtime, &image, &id)
+    } else {
+        None
+    };
+    Ok(RunResult { id, emulated, platform, problem })
 }
 
 /// Update a container's memory / CPU limits via `{runtime} update`. These can

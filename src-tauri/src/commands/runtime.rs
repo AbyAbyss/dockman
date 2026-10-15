@@ -251,6 +251,9 @@ fn start_podman() -> Result<(), String> {
     let machines = super::run(&bin, &["machine", "list", "--format", "json"])
         .map(|s| super::parse_json_lines(&s))
         .unwrap_or_default();
+    // Podman's default, rootless, is kept. Images that need the full cgroup
+    // set (code sandboxes such as Piston) are diagnosed when they fail and
+    // offered the rootful switch then — see `problems::diagnose_exit`.
     if machines.is_empty() {
         super::run(&bin, &["machine", "init"])
             .map_err(|e| format!("podman machine init failed: {e}"))?;
@@ -265,7 +268,7 @@ fn start_podman() -> Result<(), String> {
 /// True when the docker CLI's endpoint is really Podman's API socket — e.g.
 /// `podman-mac-helper` symlinks /var/run/docker.sock to the podman machine.
 /// Then the "docker engine" is the podman machine, and starting it starts docker.
-fn docker_served_by_podman() -> bool {
+pub(super) fn docker_served_by_podman() -> bool {
     let Ok(bin) = super::resolve("docker") else {
         return false;
     };
@@ -331,6 +334,30 @@ pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
     }
 }
 
+/// Switch the podman machine between rootless and rootful. The machine must be
+/// stopped for `machine set`, so this stops it, flips the mode and starts it
+/// again. Rootless and rootful podman keep separate stores, so containers and
+/// images from the other mode disappear from view until switched back.
+#[tauri::command]
+pub async fn set_machine_rootful(enabled: bool) -> Result<(), String> {
+    let bin = super::resolve("podman")?;
+    let running = super::run(&bin, &["machine", "inspect", "--format", "{{.State}}"])
+        .map(|s| s.trim() == "running")
+        .unwrap_or(false);
+    if running {
+        super::run(&bin, &["machine", "stop"])
+            .map_err(|e| format!("podman machine stop failed: {e}"))?;
+    }
+    let flag = format!("--rootful={enabled}");
+    super::run(&bin, &["machine", "set", &flag])
+        .map_err(|e| format!("podman machine set failed: {e}"))?;
+    match super::run(&bin, &["machine", "start"]) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already running") => Ok(()),
+        Err(e) => Err(format!("podman machine start failed: {e}")),
+    }
+}
+
 #[tauri::command]
 pub async fn stop_runtime_daemon(runtime: String) -> Result<(), String> {
     match runtime.as_str() {
@@ -373,6 +400,9 @@ pub struct SetupStatus {
     pub engine_running: bool,
     pub helpers_ready: bool,
     pub machine_exists: bool,
+    /// Podman only: whether the machine runs containers as root. `None` when
+    /// there is no machine (or for docker).
+    pub rootful: Option<bool>,
     pub engine_app: String,
 }
 
@@ -393,6 +423,7 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
 
     let mut helpers_ready = false;
     let mut machine_exists = false;
+    let mut rootful = None;
     let mut engine_app = String::new();
 
     if runtime == "podman" {
@@ -407,6 +438,11 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
             machine_exists = super::run(&bin, &["machine", "list", "--format", "json"])
                 .map(|s| !super::parse_json_lines(&s).is_empty())
                 .unwrap_or(false);
+            if machine_exists {
+                rootful = super::run(&bin, &["machine", "inspect", "--format", "{{.Rootful}}"])
+                    .ok()
+                    .map(|s| s.trim() == "true");
+            }
         }
     } else if runtime == "docker" {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -434,6 +470,7 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
         engine_running,
         helpers_ready,
         machine_exists,
+        rootful,
         engine_app,
     })
 }

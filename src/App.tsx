@@ -6,8 +6,9 @@ import { StatusBar } from '@/components/layout/StatusBar';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Toasts } from '@/components/ui/Toasts';
+import { ProblemsPanel } from '@/components/ui/ProblemsPanel';
 import { TABS } from '@/lib/tabs';
-import { SystemCommands } from '@/lib/commands';
+import { RuntimeCommands, SystemCommands } from '@/lib/commands';
 import { useAppStore } from '@/store/appStore';
 import {
   ACCENTS,
@@ -29,6 +30,7 @@ export default function App() {
   const refresh = useAppStore((s) => s.refresh);
   const driftCpu = useAppStore((s) => s.driftCpu);
   const stopAllRunning = useAppStore((s) => s.stopAllRunning);
+  const setEngineProblems = useAppStore((s) => s.setEngineProblems);
   const runningCount = useAppStore(
     (s) =>
       s.containers.filter(
@@ -69,6 +71,26 @@ export default function App() {
     const id = setInterval(driftCpu, 2000);
     return () => clearInterval(id);
   }, [live, refresh, driftCpu]);
+
+  // Engine probes: a rootless podman machine, Rosetta missing, a shared
+  // docker socket. Cheap, so re-checked every 30 s and on window focus.
+  useEffect(() => {
+    if (!live) return;
+    const probe = () => {
+      for (const rt of ['docker', 'podman'] as const) {
+        RuntimeCommands.engineProblems(rt)
+          .then((probs) => setEngineProblems(rt, probs))
+          .catch(() => undefined);
+      }
+    };
+    probe();
+    const id = setInterval(probe, 30000);
+    window.addEventListener('focus', probe);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', probe);
+    };
+  }, [live, setEngineProblems]);
 
   // Honour the "default tab" preference once, on first load.
   const redirected = useRef(false);
@@ -189,6 +211,7 @@ export default function App() {
           onClose={() => setConfirmStopAll(false)}
         />
       )}
+      <ProblemsPanel />
       <Toasts />
       {!wizardCompleted && <SetupWizard />}
     </div>

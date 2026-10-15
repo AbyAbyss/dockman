@@ -57,6 +57,7 @@ function seedSetup(rt: RuntimeName): SetupStatus {
     engineRunning: RUNTIMES[rt].running,
     helpersReady: true,
     machineExists: true,
+    rootful: rt === 'podman' ? false : null,
     engineApp: rt === 'docker' ? 'OrbStack' : '',
   };
 }
@@ -106,7 +107,10 @@ export default function Binaries() {
   const [task, setTask] = useState<DownloadTask | null>(null);
   const [startingRt, setStartingRt] = useState<RuntimeName | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<RuntimeName | null>(null);
+  const [confirmRootful, setConfirmRootful] = useState(false);
+  const [switchingRootful, setSwitchingRootful] = useState(false);
   const reportError = useAppStore((s) => s.reportError);
+  const reportOk = useAppStore((s) => s.reportOk);
   const host = useHostResources();
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
@@ -240,6 +244,24 @@ export default function Binaries() {
     window.setTimeout(() => setStartingRt(null), 25000);
   };
 
+  // Podman's rootless default is kept; this flips the machine either way.
+  // Rootful is only needed for images that manage their own cgroups or bind
+  // ports below 1024 — the Problems panel offers it when one fails.
+  const switchRootful = () => {
+    const target = setup.podman?.rootful !== true;
+    setSwitchingRootful(true);
+    RuntimeCommands.setRootful(target)
+      .then(() =>
+        reportOk(`Podman machine restarted in ${target ? 'rootful' : 'rootless'} mode`),
+      )
+      .catch(reportError)
+      .finally(() => {
+        setSwitchingRootful(false);
+        refetchRuntimes();
+        loadSetup();
+      });
+  };
+
   const resetBinary = (rt: RuntimeName) => {
     RuntimeCommands.removeBinary(rt)
       .then(() => {
@@ -284,6 +306,33 @@ export default function Binaries() {
                     >
                       {startingRt === rt ? 'starting…' : 'start engine'}
                     </button>
+                  )}
+                  {rt === 'podman' && setup.podman?.rootful != null && (
+                    <>
+                      <span
+                        className="bin-mode mono"
+                        title="Which user runs the podman service inside the Linux VM. Nothing on the Mac runs as root either way."
+                      >
+                        {setup.podman.rootful ? 'rootful' : 'rootless'}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-btn"
+                        disabled={switchingRootful}
+                        title={
+                          setup.podman.rootful
+                            ? "Back to podman's default"
+                            : 'Only needed by images that manage their own cgroups or bind ports below 1024'
+                        }
+                        onClick={() => setConfirmRootful(true)}
+                      >
+                        {switchingRootful
+                          ? 'switching…'
+                          : setup.podman.rootful
+                            ? 'switch to rootless'
+                            : 'switch to rootful'}
+                      </button>
+                    </>
                   )}
                 </div>
                 {steps.map((s) => (
@@ -517,6 +566,16 @@ export default function Binaries() {
         </div>
       </div>
 
+      {confirmRootful && (
+        <ConfirmDialog
+          title={`Switch podman to ${setup.podman?.rootful ? 'rootless' : 'rootful'}?`}
+          body="The podman machine will stop, switch mode and start again. Nothing on your Mac runs as root either way: the mode only changes which user runs podman inside the Linux VM. Rootful and rootless keep separate stores, so containers, images and volumes from the other mode stay on disk but disappear from view until you switch back."
+          confirmLabel="Switch and restart"
+          tone="default"
+          onConfirm={switchRootful}
+          onClose={() => setConfirmRootful(false)}
+        />
+      )}
       {confirmRemove && (
         <ConfirmDialog
           title={`Remove ${RUNTIMES[confirmRemove].name}?`}

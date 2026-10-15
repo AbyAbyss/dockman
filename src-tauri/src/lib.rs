@@ -4,8 +4,8 @@
 mod commands;
 
 use commands::{
-    builds, compose, containers, downloader, exec, images, networks, runtime, system,
-    volumes,
+    builds, compose, containers, downloader, exec, images, networks, problems, runtime,
+    system, volumes,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +36,9 @@ pub fn run() {
             runtime::get_start_on_login,
             runtime::get_setup_status,
             runtime::remove_binary,
+            runtime::set_machine_rootful,
+            // problems
+            problems::engine_problems,
             // containers
             containers::list_containers,
             containers::list_container_stats,
@@ -67,6 +70,7 @@ pub fn run() {
             images::push_image,
             images::prune_images,
             images::tag_image,
+            images::image_archs,
             // system
             system::system_prune,
             system::open_url,

@@ -101,6 +101,7 @@ export function parseContainer(rt: RuntimeName, o: Raw): Container {
     uptime: str(o, 'Status', 'RunningFor') || '—',
     tag: service ? 'service' : 'container',
     stack: labels['com.docker.compose.project'] || 'standalone',
+    imageId: str(o, 'ImageID').replace(/^sha256:/, ''),
   };
 }
 

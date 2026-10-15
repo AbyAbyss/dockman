@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SkeletonRows } from '@/components/ui/Skeleton';
 import { useAppStore } from '@/store/appStore';
 import { useImages } from '@/hooks/useData';
-import { ImageCommands } from '@/lib/commands';
+import { ImageCommands, failureOf } from '@/lib/commands';
 import { RUNTIMES } from '@/data/seed';
 import type { ImageItem, RuntimeName } from '@/types';
 
@@ -49,6 +49,7 @@ export default function Images() {
   const containers = useAppStore((s) => s.containers);
   const reportError = useAppStore((s) => s.reportError);
   const reportOk = useAppStore((s) => s.reportOk);
+  const addProblem = useAppStore((s) => s.addProblem);
   const imagesRes = useImages(runtimeFilter);
   const loading = imagesRes.loading;
 
@@ -125,10 +126,21 @@ export default function Images() {
     }, 280);
 
     const done = imagesRes.live
-      ? ImageCommands.pull(rt, name).then(() => {
-          reportOk(`Pulled ${name}`);
-          imagesRes.refetch();
-        }, reportError)
+      ? ImageCommands.pull(rt, name).then(
+          (res) => {
+            reportOk(
+              res.emulated
+                ? `Pulled ${name} · ${(res.platform ?? 'foreign-arch').replace('linux/', '')}, runs emulated`
+                : `Pulled ${name}`,
+            );
+            imagesRes.refetch();
+          },
+          (e) => {
+            const f = failureOf(e);
+            if (f.problem) addProblem(f.problem);
+            reportError(f.problem ? f.problem.message : f.message);
+          },
+        )
       : new Promise<void>((r) => setTimeout(r, 3000));
     done.finally(() => {
       if (pullTimer.current) clearInterval(pullTimer.current);

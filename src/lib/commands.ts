@@ -16,6 +16,7 @@ import type {
   Container,
   ImageItem,
   Network,
+  Problem,
   RuntimeFilter,
   RuntimeName,
   Volume,
@@ -38,7 +39,45 @@ export interface SetupStatus {
   engineRunning: boolean;
   helpersReady: boolean;
   machineExists: boolean;
+  /** Podman only: whether the machine runs containers as root; null without a machine. */
+  rootful: boolean | null;
   engineApp: string;
+}
+
+/** What a run / pull reports back beyond success. */
+export interface RunResult {
+  id: string;
+  emulated: boolean;
+  platform: string | null;
+  /** Set when a detached container died right after starting and was diagnosed. */
+  problem: Problem | null;
+}
+
+export interface PullResult {
+  emulated: boolean;
+  platform: string | null;
+}
+
+export interface ImageArch {
+  id: string;
+  names: string[];
+  arch: string;
+  emulated: boolean;
+}
+
+/** A structured failure from run / pull: the raw message plus a diagnosis. */
+export interface Failure {
+  message: string;
+  problem: Problem | null;
+}
+
+/** Normalise anything a command rejected with into a `Failure`. */
+export function failureOf(e: unknown): Failure {
+  if (e && typeof e === 'object' && 'message' in e) {
+    const f = e as { message: unknown; problem?: Problem | null };
+    return { message: String(f.message), problem: f.problem ?? null };
+  }
+  return { message: String(e).replace(/^Error:\s*/, ''), problem: null };
 }
 
 export interface BinaryRelease {
@@ -62,6 +101,9 @@ export interface RunContainerConfig {
   memorySwap?: string;
   cpus?: string;
   storageSize?: string;
+  /** Force a platform (`linux/amd64`); omitted = the runtime's default, with
+   *  an automatic emulated retry when the image has no host-arch build. */
+  platform?: string;
 }
 
 export interface NewBuildConfig {
@@ -143,6 +185,13 @@ export const RuntimeCommands = {
     invoke<SetupStatus>('get_setup_status', { runtime }),
   removeBinary: (runtime: RuntimeName) =>
     invoke<void>('remove_binary', { runtime }),
+  /** Flip the podman machine between rootless and rootful (stops + restarts it). */
+  setRootful: (enabled: boolean) =>
+    invoke<void>('set_machine_rootful', { enabled }),
+  /** Problems visible from an engine's configuration alone (rootless machine,
+   *  Rosetta missing, shared socket). */
+  engineProblems: (runtime: RuntimeName) =>
+    invoke<Problem[]>('engine_problems', { runtime }),
 };
 
 // ─── Containers ──────────────────────────────────────────────────────────────
@@ -167,8 +216,9 @@ export const ContainerCommands = {
     invoke<void>('unpause_container', { runtime: rt, id }),
   remove: (rt: RuntimeName, id: string, force = true) =>
     invoke<void>('remove_container', { runtime: rt, id, force }),
+  /** Rejects with a `Failure` (see `failureOf`) when the run fails. */
   run: (rt: RuntimeName, cfg: RunContainerConfig) =>
-    invoke<string>('run_container', { runtime: rt, ...cfg }),
+    invoke<RunResult>('run_container', { runtime: rt, ...cfg }),
   /** Adjust a container's memory / CPU limits via `<runtime> update`. */
   update: (
     rt: RuntimeName,
@@ -226,8 +276,11 @@ export const ImageCommands = {
   },
   remove: (rt: RuntimeName, id: string, force = true) =>
     invoke<void>('remove_image', { runtime: rt, id, force }),
+  /** Rejects with a `Failure` (see `failureOf`) when the pull fails. */
   pull: (rt: RuntimeName, image: string) =>
-    invoke<void>('pull_image', { runtime: rt, image }),
+    invoke<PullResult>('pull_image', { runtime: rt, image }),
+  /** Architecture of every local image, for the "emulated" label. */
+  archs: (rt: RuntimeName) => invoke<ImageArch[]>('image_archs', { runtime: rt }),
   push: (rt: RuntimeName, tag: string) =>
     invoke<void>('push_image', { runtime: rt, tag }),
   prune: (rt: RuntimeName) => invoke<string>('prune_images', { runtime: rt }),

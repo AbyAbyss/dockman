@@ -3053,3 +3053,90 @@
 @media (max-width: 1180px) {
   .ctr-row .ctr-id { display: none; }
 }
+
+/* ─── Emulated label (container rows) ──────────────────────────────────── */
+.ctr-emu {
+  display: inline-block; margin-left: 7px; padding: 1px 6px;
+  border-radius: 999px; font-size: 8.5px; letter-spacing: .04em;
+  background: rgba(224, 178, 101, 0.16); color: var(--warn);
+  vertical-align: 1px; white-space: nowrap;
+}
+
+/* ─── Problems: status bar badge + panel ────────────────────────────────── */
+.statusbar-problems {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  font: inherit; color: var(--dim-65); background: transparent;
+  border: var(--bw) solid transparent;
+}
+.statusbar-problems:hover { color: var(--text); border-color: var(--line); }
+.statusbar-problems.has-some.sev-info { color: var(--info); }
+.statusbar-problems.has-some.sev-warning { color: var(--warn); }
+.statusbar-problems.has-some.sev-error { color: var(--bad); }
+
+.prob-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex; justify-content: flex-end;
+}
+.prob-panel {
+  width: min(460px, 100vw); height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--surface); border-left: var(--bw-card) solid var(--line);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.3);
+  animation: toast-in calc(var(--dur) * 1.5) var(--ease);
+}
+.prob-panel-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-bottom: var(--bw) solid var(--line);
+}
+.prob-panel-title {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 600; font-size: 13px; color: var(--text);
+}
+.prob-panel-head .modal-x { margin-left: auto; }
+.prob-list {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+}
+.prob {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 13px; border-radius: var(--r-card);
+  background: var(--tint); border: var(--bw) solid var(--line);
+}
+.prob.sev-error { border-color: color-mix(in oklab, var(--bad) 45%, var(--line)); }
+.prob.sev-warning { border-color: color-mix(in oklab, var(--warn) 45%, var(--line)); }
+.prob-head { display: flex; align-items: center; gap: 8px; }
+.prob-sev {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; background: var(--subtle); color: var(--dim);
+}
+.sev-error .prob-sev { background: rgba(224, 122, 95, 0.16); color: var(--bad); }
+.sev-warning .prob-sev { background: rgba(224, 178, 101, 0.16); color: var(--warn); }
+.sev-info .prob-sev { background: color-mix(in oklab, var(--info) 16%, transparent); color: var(--info); }
+.prob-scope {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 9.5px; color: var(--dim-65); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.prob-scope .rt-docker { background: var(--rt-docker); }
+.prob-scope .rt-podman { background: var(--rt-podman); }
+.prob-head .toast-x { margin-left: auto; }
+.prob-msg { font-weight: 600; font-size: 12px; color: var(--text); line-height: 1.4; }
+.prob-cause { font-size: 10.5px; line-height: 1.55; color: var(--dim); }
+.prob-fixes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
+.prob-cmds { display: flex; flex-direction: column; gap: 4px; }
+.prob-cmd {
+  font-size: 10px; padding: 5px 8px; border-radius: 6px;
+  background: var(--subtle); color: var(--text); user-select: all;
+  overflow-wrap: anywhere;
+}
+.prob-log {
+  margin: 0; padding: 8px 10px; border-radius: 6px; max-height: 180px; overflow: auto;
+  font-size: 9.5px; line-height: 1.5; color: var(--dim);
+  background: var(--sunken); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.bin-mode {
+  font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; background: var(--subtle); color: var(--dim);
+}

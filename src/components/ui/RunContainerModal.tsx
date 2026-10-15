@@ -8,10 +8,18 @@ import { useEffect, useState } from 'react';
 import { Glyph } from './Icon';
 import { LaunchCard } from './LaunchCard';
 import { RuntimeBadge } from './Runtime';
-import { ContainerCommands } from '@/lib/commands';
+import { ContainerCommands, failureOf } from '@/lib/commands';
 import { LIMIT_PRESETS, limitSummary } from '@/lib/limits';
 import { useAppStore } from '@/store/appStore';
 import type { RuntimeName } from '@/types';
+
+type Platform = '' | 'linux/amd64' | 'linux/arm64';
+
+const PLATFORMS: { k: Platform; l: string }[] = [
+  { k: '', l: 'auto' },
+  { k: 'linux/amd64', l: 'amd64' },
+  { k: 'linux/arm64', l: 'arm64' },
+];
 
 interface Pair {
   a: string;
@@ -55,10 +63,14 @@ export function RunContainerModal({
 }) {
   const refresh = useAppStore((s) => s.refresh);
   const live = useAppStore((s) => s.live);
+  const reportOk = useAppStore((s) => s.reportOk);
+  const addProblem = useAppStore((s) => s.addProblem);
+  const setProblemsOpen = useAppStore((s) => s.setProblemsOpen);
 
   const [image, setImage] = useState(defaultImage);
   const [name, setName] = useState('');
   const [rt, setRt] = useState<RuntimeName>(defaultRuntime);
+  const [platform, setPlatform] = useState<Platform>('');
   const [ports, setPorts] = useState<Pair[]>([{ ...EMPTY }]);
   const [env, setEnv] = useState<Pair[]>([{ ...EMPTY }]);
   const [volumes, setVolumes] = useState<Pair[]>([{ ...EMPTY }]);
@@ -113,11 +125,30 @@ export function RunContainerModal({
       memorySwap: memorySwap.trim() || undefined,
       cpus: cpus.trim() || undefined,
       storageSize: storageSize.trim() || undefined,
+      platform: platform || undefined,
     })
-      .then(() => refresh())
-      .then(() => onClose())
+      .then(async (res) => {
+        await refresh();
+        const short = image.trim();
+        if (res.problem) {
+          // Started, then died in its entrypoint — the diagnosis says why.
+          addProblem(res.problem);
+          setProblemsOpen(true);
+        } else if (res.emulated) {
+          reportOk(
+            `Started ${short} under ${(res.platform ?? 'foreign-arch').replace('linux/', '')} emulation`,
+          );
+        }
+        onClose();
+      })
       .catch((e) => {
-        setError(String(e));
+        const f = failureOf(e);
+        if (f.problem) {
+          addProblem(f.problem);
+          setError(`${f.problem.message}\n${f.problem.cause}`);
+        } else {
+          setError(f.message);
+        }
         setBusy(false);
       });
   };
@@ -204,6 +235,28 @@ export function RunContainerModal({
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+
+              <div className="rcm-field">
+                <label className="rcm-label">
+                  Platform <span className="rcm-opt">optional</span>
+                </label>
+                <div className="rcm-seg">
+                  {PLATFORMS.map((p) => (
+                    <button
+                      key={p.k}
+                      type="button"
+                      className={`rcm-seg-btn ${platform === p.k ? 'is-on' : ''}`}
+                      onClick={() => setPlatform(p.k)}
+                    >
+                      {p.l}
+                    </button>
+                  ))}
+                </div>
+                <div className="rcm-limits-note">
+                  Auto uses this Mac's architecture. An image with no build for
+                  it is retried under emulation and labelled as such.
                 </div>
               </div>
 
