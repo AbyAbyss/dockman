@@ -121,6 +121,7 @@ export default function Builds() {
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const selectedBuild = useAppStore((s) => s.selectedBuild);
   const setSelectedBuild = useAppStore((s) => s.setSelectedBuild);
+  const reportError = useAppStore((s) => s.reportError);
   const buildsRes = useBuilds(runtimeFilter);
 
   const [localBuilds, setLocalBuilds] = useState<BuildRecord[]>([]);
@@ -183,8 +184,28 @@ export default function Builds() {
 
     if (buildsRes.live) {
       setTask({ progress: 8, lines: ['queued build — invoking docker build…'] });
+      // The build thread can finish (e.g. the runtime fails to spawn) before
+      // `start` resolves, so the completion listener goes up first.
+      let id: string | null = null;
+      let finished = false;
+      let offOutput: UnlistenFn | null = null;
+      const cleanup = () => {
+        offOutput?.();
+        offDone();
+        unlisteners.current = unlisteners.current.filter(
+          (u) => u !== offOutput && u !== offDone,
+        );
+      };
+      const offDone = await listen<unknown>(BUILDS_CHANGED, () => {
+        finished = true;
+        cleanup();
+        setTask(null);
+        if (id) setSelectedBuild(id);
+        buildsRes.refetch();
+      });
+      unlisteners.current.push(offDone);
       try {
-        const id = await BuildCommands.start({
+        id = await BuildCommands.start({
           runtime: runtimeFilter === 'podman' ? 'podman' : 'docker',
           tag: form.tag,
           contextPath: form.context,
@@ -192,26 +213,28 @@ export default function Builds() {
           useCache: form.useCache,
           pushOnSuccess: form.pushOnSuccess,
         });
-        setTask((t) => (t ? { ...t, id } : t));
-        const offOutput = await listen<string>(buildOutputEvent(id), (line) => {
-          setTask((t) =>
-            t ? { ...t, progress: Math.min(95, t.progress + 3), lines: [...t.lines, line] } : t,
-          );
-        });
-        const offDone = await listen<unknown>(BUILDS_CHANGED, () => {
-          offOutput();
-          offDone();
-          unlisteners.current = unlisteners.current.filter(
-            (u) => u !== offOutput && u !== offDone,
-          );
-          setTask(null);
-          setSelectedBuild(id);
-          buildsRes.refetch();
-        });
-        unlisteners.current.push(offOutput, offDone);
-      } catch {
+      } catch (e) {
+        cleanup();
         setTask(null);
+        reportError(e);
+        return;
       }
+      if (finished) {
+        setSelectedBuild(id);
+        return;
+      }
+      setTask((t) => (t ? { ...t, id: id! } : t));
+      const off = await listen<string>(buildOutputEvent(id), (line) => {
+        setTask((t) =>
+          t ? { ...t, progress: Math.min(95, t.progress + 3), lines: [...t.lines, line] } : t,
+        );
+      });
+      if (finished) {
+        off();
+        return;
+      }
+      offOutput = off;
+      unlisteners.current.push(off);
       return;
     }
 

@@ -6,6 +6,7 @@ import { Glyph } from '@/components/ui/Icon';
 import { useAppStore } from '@/store/appStore';
 import { useNetworks } from '@/hooks/useData';
 import { SystemCommands } from '@/lib/commands';
+import { splitPorts } from '@/lib/parsers';
 import { NET_SPARK, RUNTIMES } from '@/data/seed';
 import type { Container, Network } from '@/types';
 
@@ -148,7 +149,7 @@ export default function Networks() {
   const scopeOf = (n: Network) =>
     n.ext ? 'external' : n.driver === 'host' ? 'host' : n.name.includes('default') ? 'default' : 'internal';
 
-  const published = visible.filter((c) => c.port && c.port !== '—');
+  const published = visible.filter((c) => splitPorts(c.port).some((p) => p.host));
 
   return (
     <div className="split-screen">
@@ -254,9 +255,9 @@ export default function Networks() {
                     <div className="det-empty mono">no published ports</div>
                   )}
                   {published.map((c) => {
-                    const parts = c.port.split(',')[0].split(':');
-                    const host = parts[0];
-                    const cport = parts[1] || parts[0];
+                    const b = splitPorts(c.port).find((p) => p.host)!;
+                    const host = b.host;
+                    const cport = b.container;
                     return (
                       <div key={c.id} className="port-row">
                         <span className={`ctr-dot st-${c.status}`} />
@@ -264,7 +265,7 @@ export default function Networks() {
                         <span className="port-map mono">
                           {host} → {cport}
                         </span>
-                        <span className="proto-chip mono">TCP</span>
+                        <span className="proto-chip mono">{b.proto.toUpperCase()}</span>
                         <button
                           type="button"
                           className="text-btn"

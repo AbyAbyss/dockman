@@ -35,6 +35,14 @@ function fmtGB(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
+/** Canonical image reference: drops the docker.io/library/ prefix podman adds,
+ *  any digest, and defaults a missing tag to latest. */
+function normRef(ref: string): string {
+  let r = ref.split('@')[0].replace(/^docker\.io\//, '').replace(/^library\//, '');
+  if (r.lastIndexOf(':') <= r.lastIndexOf('/')) r += ':latest';
+  return r;
+}
+
 export default function Images() {
   const query = useAppStore((s) => s.query);
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
@@ -42,19 +50,40 @@ export default function Images() {
   const reportError = useAppStore((s) => s.reportError);
   const reportOk = useAppStore((s) => s.reportOk);
   const imagesRes = useImages(runtimeFilter);
-  const images = imagesRes.data;
   const loading = imagesRes.loading;
 
-  // USED BY names the containers actually running an image, not its pull count.
-  const usersOf = (img: ImageItem) =>
-    containers.filter((c) => c.image.split(':')[0] === img.name).map((c) => c.name);
+  // USED BY names the containers (running or stopped) created from an image,
+  // on the same runtime — matched by normalised repo:tag or by image id.
+  const usersOf = (img: ImageItem) => {
+    const ref = normRef(`${img.name}:${img.tag}`);
+    return containers
+      .filter((c) => {
+        if (c.rt !== img.rt) return false;
+        const cref = normRef(c.image);
+        if (cref === ref) return true;
+        const hex = c.image.replace(/^sha256:/, '');
+        return /^[0-9a-f]{12,}$/.test(hex) && (img.id.startsWith(hex) || hex.startsWith(img.id));
+      })
+      .map((c) => c.name);
+  };
+  // The CLI listing carries no usage, so `used` is derived from the containers.
+  const images = useMemo(
+    () => imagesRes.data.map((i) => ({ ...i, used: usersOf(i).length > 0 })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [imagesRes.data, containers],
+  );
 
   const [pullInput, setPullInput] = useState('postgres:16-alpine');
-  const [pulling, setPulling] = useState<{ name: string; progress: number } | null>(null);
+  const [pulling, setPulling] = useState<{
+    name: string;
+    rt: RuntimeName;
+    progress: number;
+  } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tagging, setTagging] = useState(false);
   const [tagValue, setTagValue] = useState('');
   const [confirmPrune, setConfirmPrune] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<ImageItem | null>(null);
   const [runTarget, setRunTarget] = useState<{ image: string; rt: RuntimeName } | null>(
     null,
   );
@@ -84,28 +113,28 @@ export default function Images() {
   const startPull = () => {
     if (!pullInput.trim() || pulling) return;
     const name = pullInput;
-    setPulling({ name, progress: 0 });
+    const rt: RuntimeName = runtimeFilter === 'podman' ? 'podman' : 'docker';
+    setPulling({ name, rt, progress: 0 });
 
-    if (imagesRes.live) {
-      const rt = runtimeFilter === 'podman' ? 'podman' : 'docker';
-      ImageCommands.pull(rt, name)
-        .then(() => imagesRes.refetch())
-        .catch(reportError);
-    }
-
-    // The CLI does not stream a percentage, so the bar is a progress
-    // indication rather than a measured one — same as the previous build.
+    // The CLI does not stream a percentage, so the bar only creeps towards
+    // 95% and the strip stays up until the real pull settles.
     let p = 0;
     pullTimer.current = window.setInterval(() => {
-      p += 8 + Math.random() * 12;
-      if (p >= 100) {
-        if (pullTimer.current) clearInterval(pullTimer.current);
-        pullTimer.current = null;
-        setPulling(null);
-        return;
-      }
-      setPulling({ name, progress: Math.round(p) });
+      p += (95 - p) * 0.06;
+      setPulling({ name, rt, progress: Math.round(p) });
     }, 280);
+
+    const done = imagesRes.live
+      ? ImageCommands.pull(rt, name).then(() => {
+          reportOk(`Pulled ${name}`);
+          imagesRes.refetch();
+        }, reportError)
+      : new Promise<void>((r) => setTimeout(r, 3000));
+    done.finally(() => {
+      if (pullTimer.current) clearInterval(pullTimer.current);
+      pullTimer.current = null;
+      setPulling(null);
+    });
   };
 
   const removeImage = (img: ImageItem) => {
@@ -194,7 +223,9 @@ export default function Images() {
 
         {pulling && (
           <div className="pull-strip">
-            <span className="mono">pulling {pulling.name}</span>
+            <span className="mono">
+              pulling {pulling.name} · {pulling.rt}
+            </span>
             <div className="track">
               <div className="track-fill" style={{ width: `${pulling.progress}%` }} />
             </div>
@@ -275,7 +306,7 @@ export default function Images() {
                     type="button"
                     className="row-btn is-danger"
                     title="Remove image"
-                    onClick={() => removeImage(img)}
+                    onClick={() => setConfirmRemove(img)}
                   >
                     <Glyph name="trash" size={12} />
                   </button>
@@ -329,7 +360,7 @@ export default function Images() {
                 <button
                   type="button"
                   className="det-action is-danger"
-                  onClick={() => removeImage(detail)}
+                  onClick={() => setConfirmRemove(detail)}
                 >
                   Remove
                 </button>
@@ -412,6 +443,15 @@ export default function Images() {
           confirmLabel="Prune"
           onConfirm={pruneImages}
           onClose={() => setConfirmPrune(false)}
+        />
+      )}
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove image?"
+          body={`${confirmRemove.name}:${confirmRemove.tag} (${confirmRemove.rt}) will be force-removed, even if containers still reference it. This cannot be undone.`}
+          confirmLabel="Remove"
+          onConfirm={() => removeImage(confirmRemove)}
+          onClose={() => setConfirmRemove(null)}
         />
       )}
     </div>

@@ -27,29 +27,39 @@ export function SkeletonRows({
   );
 }
 
-/** Shown in place of a list when the runtime the list depends on is down. */
+/** Shown in place of a list when the runtimes the list depends on are down. */
 export function EngineDown({
-  runtime,
+  runtimes,
   onStart,
-  starting = false,
+  starting = null,
 }: {
-  runtime: string;
-  onStart: () => void;
-  starting?: boolean;
+  runtimes: string[];
+  onStart: (runtime: string) => void;
+  /** The runtime currently being started, if any. */
+  starting?: string | null;
 }) {
+  const names = runtimes.join(' and ');
   return (
     <div className="empty">
       <Glyph name="bolt" size={24} />
-      <div>The {runtime} engine is not running, so there is nothing to list.</div>
-      <button
-        type="button"
-        className="tool-btn is-primary"
-        disabled={starting}
-        onClick={onStart}
-      >
-        <Glyph name="play" size={12} fill="currentColor" sw={0} />
-        {starting ? 'Starting…' : `Start ${runtime}`}
-      </button>
+      <div>
+        The {names} {runtimes.length > 1 ? 'engines are' : 'engine is'} not running, so
+        there is nothing to list.
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {runtimes.map((rt) => (
+          <button
+            key={rt}
+            type="button"
+            className="tool-btn is-primary"
+            disabled={starting !== null}
+            onClick={() => onStart(rt)}
+          >
+            <Glyph name="play" size={12} fill="currentColor" sw={0} />
+            {starting === rt ? 'Starting…' : `Start ${rt}`}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

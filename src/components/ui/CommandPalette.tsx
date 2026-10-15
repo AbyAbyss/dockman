@@ -24,6 +24,7 @@ export function CommandPalette({
 }) {
   const navigate = useNavigate();
   const containers = useAppStore((s) => s.containers);
+  const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const restartAllRunning = useAppStore((s) => s.restartAllRunning);
   const mode = useThemeStore((s) => s.mode);
   const setMode = useThemeStore((s) => s.setMode);
@@ -31,7 +32,10 @@ export function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const running = containers.filter((c) => c.status === 'running').length;
+  const running = containers.filter(
+    (c) =>
+      c.status === 'running' && (runtimeFilter === 'all' || c.rt === runtimeFilter),
+  ).length;
 
   const commands = useMemo<Command[]>(() => {
     const go = (path: string) => () => {

@@ -3,7 +3,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from '@/components/ui/Icon';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useRuntimes } from '@/hooks/useData';
+import { useAppStore } from '@/store/appStore';
+import { useHostResources } from '@/hooks/useHostResources';
 import {
   BinaryCommands,
   RuntimeCommands,
@@ -102,6 +105,9 @@ export default function Binaries() {
   const [verifyAfter, setVerifyAfter] = useState(true);
   const [task, setTask] = useState<DownloadTask | null>(null);
   const [startingRt, setStartingRt] = useState<RuntimeName | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<RuntimeName | null>(null);
+  const reportError = useAppStore((s) => s.reportError);
+  const host = useHostResources();
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   const loadSetup = () => {
@@ -168,8 +174,15 @@ export default function Binaries() {
     if (task || !version) return;
     const release = releases[rt].find((r) => r.version === version);
 
-    if (!live || !release || !release.url) {
+    if (!live) {
       simulate(rt, version);
+      return;
+    }
+    if (!release?.url) {
+      // No real download URL (the release list failed to load) — say so
+      // rather than faking a successful install.
+      setTask({ rt, version, phase: 'error', percent: 0, message: `no download found for ${rt} ${version}` });
+      window.setTimeout(() => setTask(null), 5000);
       return;
     }
 
@@ -233,7 +246,7 @@ export default function Binaries() {
         refetchRuntimes();
         loadSetup();
       })
-      .catch(() => undefined);
+      .catch(reportError);
   };
 
   const allReady = RUNTIME_KEYS.every((rt) =>
@@ -318,16 +331,16 @@ export default function Binaries() {
                       className="ov-engine-dot"
                       style={{ background: meta.running ? meta.accent : undefined }}
                     />
-                    v{current} · latest {latest}
+                    {meta.found ? `v${current || '?'}` : 'not installed'} · latest {latest}
                   </div>
                 </div>
                 <span className={`bin-state mono ${upToDate ? 'is-on' : 'is-warn'}`}>
-                  {upToDate ? 'UP TO DATE' : 'UPDATE AVAILABLE'}
+                  {upToDate ? 'UP TO DATE' : meta.found ? 'UPDATE AVAILABLE' : 'NOT INSTALLED'}
                 </span>
               </div>
 
               <div className="bin-path">
-                <span className="mono">{meta.path}</span>
+                <span className="mono">{meta.path || `${rt} not found`}</span>
                 <button
                   type="button"
                   className="text-btn"
@@ -406,14 +419,16 @@ export default function Binaries() {
                   >
                     Install v{chosen}
                   </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title={`Remove the ${meta.name} binary Dockman installed`}
-                    onClick={() => resetBinary(rt)}
-                  >
-                    <Glyph name="more" size={13} sw={2.2} />
-                  </button>
+                  {meta.found && (
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title={`Remove the ${meta.name} binary Dockman installed`}
+                      onClick={() => setConfirmRemove(rt)}
+                    >
+                      <Glyph name="trash" size={13} />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -489,7 +504,9 @@ export default function Binaries() {
           <div className="card-title">Your machine</div>
           <div className="bin-os">macOS</div>
           <div className="bin-sub mono">
-            {runtimes.docker.arch} · Apple Silicon · 12 cores · 16 GB
+            {runtimes.docker.arch} ·{' '}
+            {runtimes.docker.arch === 'aarch64' ? 'Apple Silicon' : 'Intel'} · {host.cores}{' '}
+            cores · {Math.round(host.memTotalGb)} GB
           </div>
           <div className="callout">
             <div className="callout-body mono">
@@ -499,6 +516,16 @@ export default function Binaries() {
           </div>
         </div>
       </div>
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title={`Remove ${RUNTIMES[confirmRemove].name}?`}
+          body={`Deletes the ${confirmRemove} binary Dockman installed in ~/.local/bin${confirmRemove === 'podman' ? ' and its VM helpers (gvproxy, vfkit)' : ''}. System and Homebrew installs are not touched.`}
+          confirmLabel="Remove"
+          onConfirm={() => resetBinary(confirmRemove)}
+          onClose={() => setConfirmRemove(null)}
+        />
+      )}
     </div>
   );
 }

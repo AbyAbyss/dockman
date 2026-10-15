@@ -97,15 +97,21 @@ async function fanOut<T>(
   return lists.flat();
 }
 
-/** Drop duplicates — when Docker and Podman share an engine (e.g. OrbStack)
- *  the same object is reported by both CLIs. */
-function dedupeBy<T>(items: T[], key: (x: T) => string): T[] {
-  const seen = new Set<string>();
+/** Drop duplicates — when Docker and Podman share an engine (e.g. OrbStack,
+ *  or podman-mac-helper pointing /var/run/docker.sock at the podman machine)
+ *  the same object is reported by both CLIs. Podman's copy wins: the docker
+ *  CLI is then only a client of the podman engine that actually owns it. */
+function dedupeBy<T extends { rt: RuntimeName }>(items: T[], key: (x: T) => string): T[] {
+  const byKey = new Map<string, number>();
   const out: T[] = [];
   for (const item of items) {
     const k = key(item);
-    if (k && seen.has(k)) continue;
-    if (k) seen.add(k);
+    const at = k ? byKey.get(k) : undefined;
+    if (at !== undefined) {
+      if (item.rt === 'podman') out[at] = item;
+      continue;
+    }
+    if (k) byKey.set(k, out.length);
     out.push(item);
   }
   return out;
@@ -304,9 +310,17 @@ export const BuildCommands = {
 
 // ─── System ──────────────────────────────────────────────────────────────────
 
+export interface HostInfo {
+  cores: number;
+  memTotalBytes: number;
+  diskTotalBytes: number;
+  diskFreeBytes: number;
+}
+
 export const SystemCommands = {
   prune: (rt: RuntimeName) => invoke<string>('system_prune', { runtime: rt }),
   openUrl: (url: string) => invoke<void>('open_url', { url }),
+  hostInfo: () => invoke<HostInfo>('host_info'),
   quit: () => invoke<void>('quit_app'),
   setTranslucent: (enabled: boolean) =>
     invoke<void>('set_window_translucent', { enabled }),

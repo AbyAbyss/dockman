@@ -30,7 +30,12 @@ export default function App() {
   const driftCpu = useAppStore((s) => s.driftCpu);
   const stopAllRunning = useAppStore((s) => s.stopAllRunning);
   const runningCount = useAppStore(
-    (s) => s.containers.filter((c) => c.status === 'running').length,
+    (s) =>
+      s.containers.filter(
+        (c) =>
+          c.status === 'running' &&
+          (s.runtimeFilter === 'all' || c.rt === s.runtimeFilter),
+      ).length,
   );
   const wizardCompleted = useWizardStore((s) => s.completed);
   const location = useLocation();

@@ -109,6 +109,12 @@ export const useAppStore = create<AppState>((set, get) => {
     }));
   };
 
+  /** Bulk and stack actions only touch the runtime the user is looking at. */
+  const inScope = (c: Container) => {
+    const f = get().runtimeFilter;
+    return f === 'all' || c.rt === f;
+  };
+
   return {
   // Live mode starts empty and is filled by the first refresh; seed mode
   // shows the prototype inventory immediately.
@@ -135,9 +141,11 @@ export const useAppStore = create<AppState>((set, get) => {
   selectedNetwork: '',
   selectedBuild: '',
 
-  setRuntimeFilter: (runtimeFilter) => set({ runtimeFilter }),
-  setQuery: (query) => set({ query }),
-  setStatusFilter: (statusFilter) => set({ statusFilter }),
+  // A filter change hides rows, so the selection is dropped with it — bulk
+  // selection actions must never reach containers the user can't see.
+  setRuntimeFilter: (runtimeFilter) => set({ runtimeFilter, selection: [] }),
+  setQuery: (query) => set({ query, selection: [] }),
+  setStatusFilter: (statusFilter) => set({ statusFilter, selection: [] }),
   setFocusedContainer: (focusedContainer) => set({ focusedContainer }),
   setSelectedNetwork: (selectedNetwork) => set({ selectedNetwork }),
   setSelectedBuild: (selectedBuild) => set({ selectedBuild }),
@@ -284,7 +292,9 @@ export const useAppStore = create<AppState>((set, get) => {
   startAllStopped: async () => {
     const { containers, live, refresh } = get();
     if (live) {
-      const stopped = containers.filter((c) => c.status === 'stopped');
+      const stopped = containers.filter(
+        (c) => inScope(c) && c.status === 'stopped',
+      );
       await Promise.all(
         stopped.map((c) =>
           ContainerCommands.start(c.rt, c.id).catch((e) => fail(e)),
@@ -294,7 +304,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.status === 'stopped' ? applyStatus(c, 'running') : c,
+          inScope(c) && c.status === 'stopped' ? applyStatus(c, 'running') : c,
         ),
       });
     }
@@ -303,7 +313,9 @@ export const useAppStore = create<AppState>((set, get) => {
   restartAllRunning: async () => {
     const { containers, live, refresh } = get();
     if (live) {
-      const running = containers.filter((c) => c.status === 'running');
+      const running = containers.filter(
+        (c) => inScope(c) && c.status === 'running',
+      );
       await Promise.all(
         running.map((c) =>
           ContainerCommands.restart(c.rt, c.id).catch((e) => fail(e)),
@@ -313,7 +325,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.status === 'running' ? { ...c, uptime: 'just now' } : c,
+          inScope(c) && c.status === 'running' ? { ...c, uptime: 'just now' } : c,
         ),
       });
     }
@@ -322,7 +334,9 @@ export const useAppStore = create<AppState>((set, get) => {
   stopAllRunning: async () => {
     const { containers, live, refresh } = get();
     if (live) {
-      const running = containers.filter((c) => c.status === 'running');
+      const running = containers.filter(
+        (c) => inScope(c) && c.status === 'running',
+      );
       await Promise.all(
         running.map((c) =>
           ContainerCommands.stop(c.rt, c.id).catch((e) => fail(e)),
@@ -332,7 +346,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.status === 'running' ? applyStatus(c, 'stopped') : c,
+          inScope(c) && c.status === 'running' ? applyStatus(c, 'stopped') : c,
         ),
       });
     }
@@ -387,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => {
   startStack: async (stack) => {
     const { containers, live, refresh } = get();
     const targets = containers.filter(
-      (c) => c.stack === stack && c.status !== 'running',
+      (c) => inScope(c) && c.stack === stack && c.status !== 'running',
     );
     if (live) {
       await Promise.all(
@@ -399,7 +413,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.stack === stack && c.status !== 'running'
+          inScope(c) && c.stack === stack && c.status !== 'running'
             ? applyStatus(c, 'running')
             : c,
         ),
@@ -410,7 +424,7 @@ export const useAppStore = create<AppState>((set, get) => {
   stopStack: async (stack) => {
     const { containers, live, refresh } = get();
     const targets = containers.filter(
-      (c) => c.stack === stack && c.status === 'running',
+      (c) => inScope(c) && c.stack === stack && c.status === 'running',
     );
     if (live) {
       await Promise.all(
@@ -422,7 +436,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.stack === stack && c.status === 'running'
+          inScope(c) && c.stack === stack && c.status === 'running'
             ? applyStatus(c, 'stopped')
             : c,
         ),
@@ -432,7 +446,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
   restartStack: async (stack) => {
     const { containers, live, refresh } = get();
-    const targets = containers.filter((c) => c.stack === stack);
+    const targets = containers.filter(
+      (c) => inScope(c) && c.stack === stack,
+    );
     if (live) {
       await Promise.all(
         targets.map((c) =>
@@ -445,7 +461,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } else {
       set({
         containers: containers.map((c) =>
-          c.stack === stack ? applyStatus(c, 'running') : c,
+          inScope(c) && c.stack === stack ? applyStatus(c, 'running') : c,
         ),
       });
     }

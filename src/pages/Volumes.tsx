@@ -47,6 +47,9 @@ export default function Volumes() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [confirmPrune, setConfirmPrune] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<{ rt: RuntimeName; name: string } | null>(
+    null,
+  );
 
   const createRt: RuntimeName = runtimeFilter === 'podman' ? 'podman' : 'docker';
 
@@ -58,7 +61,10 @@ export default function Volumes() {
   }, [volumes, query]);
 
   const totalMB = volumes.reduce((s, v) => s + sizeToMB(v.size), 0);
-  const unattached = volumes.filter((v) => !v.attached || v.attached === '—');
+  // '—' is a known-unattached volume; '' means attachment is unknown (live
+  // mode has no mount data), so those are neither counted nor called idle.
+  const unattached = volumes.filter((v) => v.attached === '—');
+  const unknownCount = volumes.filter((v) => !v.attached).length;
   const maxMB = Math.max(1, ...volumes.map((v) => sizeToMB(v.size)));
 
   const createVolume = () => {
@@ -115,8 +121,10 @@ export default function Volumes() {
             </div>
           ) : (
             <span className="toolbar-note mono">
-              {fmtGB(totalMB)} across {volumes.length} volumes · {unattached.length}{' '}
-              unattached
+              {fmtGB(totalMB)} across {volumes.length} volumes ·{' '}
+              {unknownCount > 0
+                ? 'attachment unknown'
+                : `${unattached.length} unattached`}
             </span>
           )}
 
@@ -124,7 +132,7 @@ export default function Volumes() {
             <button
               type="button"
               className="tool-btn is-danger"
-              disabled={unattached.length === 0}
+              disabled={unattached.length === 0 && unknownCount === 0}
               onClick={() => setConfirmPrune(true)}
             >
               <Glyph name="trash" size={12} />
@@ -166,7 +174,8 @@ export default function Volumes() {
             </div>
           )}
           {filtered.map((v) => {
-            const idle = !v.attached || v.attached === '—';
+            const idle = v.attached === '—';
+            const unknown = !v.attached;
             return (
               <div key={`${v.rt}-${v.name}`} className="vol-row vol-cols">
                 <div className="col-vname">
@@ -180,8 +189,11 @@ export default function Volumes() {
                 </div>
                 <span className="col-mount mono">{v.mount}</span>
                 <span className="col-driver mono">{v.driver}</span>
-                <span className={`col-att mono ${idle ? 'is-idle' : ''}`}>
-                  {idle ? '—' : v.attached}
+                <span
+                  className={`col-att mono ${idle || unknown ? 'is-idle' : ''}`}
+                  title={unknown ? 'Attachment data is not available' : undefined}
+                >
+                  {unknown ? 'unknown' : idle ? '—' : v.attached}
                 </span>
                 <div className="col-vsize">
                   <div className="vol-track">
@@ -198,7 +210,7 @@ export default function Volumes() {
                     type="button"
                     className="row-btn is-danger"
                     title="Remove volume"
-                    onClick={() => deleteVolume(v.rt, v.name)}
+                    onClick={() => setConfirmRemove({ rt: v.rt, name: v.name })}
                   >
                     <Glyph name="trash" size={12} />
                   </button>
@@ -260,10 +272,23 @@ export default function Volumes() {
       {confirmPrune && (
         <ConfirmDialog
           title="Prune unattached volumes?"
-          body={`${unattached.length} volume${unattached.length === 1 ? '' : 's'} not attached to any container will be deleted, along with the data inside them. This cannot be undone.`}
+          body={
+            unknownCount > 0
+              ? 'Every volume not attached to any container will be deleted, along with the data inside it. This cannot be undone.'
+              : `${unattached.length} volume${unattached.length === 1 ? '' : 's'} not attached to any container will be deleted, along with the data inside them. This cannot be undone.`
+          }
           confirmLabel="Prune"
           onConfirm={pruneVolumes}
           onClose={() => setConfirmPrune(false)}
+        />
+      )}
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove volume?"
+          body={`${confirmRemove.name} (${confirmRemove.rt}) will be force-removed along with all the data inside it. This cannot be undone.`}
+          confirmLabel="Remove"
+          onConfirm={() => deleteVolume(confirmRemove.rt, confirmRemove.name)}
+          onClose={() => setConfirmRemove(null)}
         />
       )}
     </div>

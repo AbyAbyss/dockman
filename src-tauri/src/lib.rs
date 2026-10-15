@@ -70,6 +70,7 @@ pub fn run() {
             // system
             system::system_prune,
             system::open_url,
+            system::host_info,
             system::quit_app,
             system::set_window_translucent,
             // volumes

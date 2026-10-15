@@ -25,7 +25,11 @@ export function useResource<T>(
   pollMs = 0,
 ): Resource<T> {
   const live = isTauri();
-  const [data, setData] = useState<T>(seed);
+  // Under Tauri, list resources start empty rather than showing seed rows
+  // as if they were real.
+  const [data, setData] = useState<T>(() =>
+    live && Array.isArray(seed) ? ([] as T) : seed,
+  );
   const [loading, setLoading] = useState<boolean>(live);
   const [error, setError] = useState<string | null>(null);
 

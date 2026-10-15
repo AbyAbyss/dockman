@@ -75,6 +75,7 @@ function LogsTab({ container }: { container: Container }) {
   const [tail, setTail] = useState<(typeof TAILS)[number]>(500);
   const [timestamps, setTimestamps] = useState(false);
   const [follow, setFollow] = useState(true);
+  const [error, setError] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Stream while the pane is open on this container; tear the stream down when
@@ -85,8 +86,9 @@ function LogsTab({ container }: { container: Container }) {
     let unlisten: UnlistenFn | undefined;
     let cancelled = false;
     setLines([]);
+    setError('');
     ContainerCommands.startLogs(container.rt, container.id, tail, timestamps).catch(
-      () => undefined,
+      (e) => !cancelled && setError(String(e)),
     );
     listen<string>(containerLogsEvent(container.id), (l) =>
       setLines((prev) => [...prev.slice(-tail), parseLogLine(l)]),
@@ -116,7 +118,7 @@ function LogsTab({ container }: { container: Container }) {
       <div className="det-logs" ref={bodyRef}>
         {live && all.length === 0 && (
           <div className="det-log-row lv-info">
-            <span className="det-log-msg">streaming logs…</span>
+            <span className="det-log-msg">{error || 'streaming logs…'}</span>
           </div>
         )}
         {all.length > 0 && rows.length === 0 && (
@@ -338,6 +340,7 @@ function useInspect(container: Container) {
   const live = useAppStore((s) => s.live);
   const [env, setEnv] = useState<[string, string][]>([]);
   const [mounts, setMounts] = useState<Mount[]>([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!live) return;
@@ -345,6 +348,7 @@ function useInspect(container: Container) {
     ContainerCommands.inspect(container.rt, container.id)
       .then((raw) => {
         if (cancelled) return;
+        setError('');
         const d = Array.isArray(raw) ? raw[0] : raw;
 
         const envVal = pick(d, 'Config', 'Env');
@@ -371,13 +375,13 @@ function useInspect(container: Container) {
           );
         }
       })
-      .catch(() => undefined);
+      .catch((e) => !cancelled && setError(String(e)));
     return () => {
       cancelled = true;
     };
   }, [live, container.rt, container.id]);
 
-  return { live, env, mounts };
+  return { live, env, mounts, error };
 }
 
 const SEED_ENV: [string, string][] = [
@@ -388,11 +392,14 @@ const SEED_ENV: [string, string][] = [
 ];
 
 function EnvTab({ container }: { container: Container }) {
-  const { live, env } = useInspect(container);
+  const { live, env, error } = useInspect(container);
   const rows = live ? env : SEED_ENV;
   return (
     <div className="det-env">
-      {rows.length === 0 && <div className="det-empty mono">no variables</div>}
+      {live && error && <div className="det-empty mono">{error}</div>}
+      {!(live && error) && rows.length === 0 && (
+        <div className="det-empty mono">no variables</div>
+      )}
       {rows.map(([k, v], i) => (
         <div key={i} className="det-env-row">
           <span className="det-env-k mono">{k}</span>
@@ -404,7 +411,7 @@ function EnvTab({ container }: { container: Container }) {
 }
 
 function MountsTab({ container }: { container: Container }) {
-  const { live, mounts } = useInspect(container);
+  const { live, mounts, error } = useInspect(container);
   const rows: Mount[] = live
     ? mounts
     : [
@@ -413,7 +420,10 @@ function MountsTab({ container }: { container: Container }) {
       ];
   return (
     <div className="det-mounts">
-      {rows.length === 0 && <div className="det-empty mono">no mounts</div>}
+      {live && error && <div className="det-empty mono">{error}</div>}
+      {!(live && error) && rows.length === 0 && (
+        <div className="det-empty mono">no mounts</div>
+      )}
       {rows.map((m, i) => (
         <div key={i} className="det-mount">
           <div className="det-mount-head">

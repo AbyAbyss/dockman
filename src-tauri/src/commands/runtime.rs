@@ -60,6 +60,19 @@ fn custom_path(runtime: &str) -> Option<String> {
 
 // ─── Detection ───────────────────────────────────────────────────────────────
 
+/// The client version from `<bin> --version` ("Docker version 29.9.0, build …"
+/// / "podman version 6.1.4"). Unlike `version --format`, this never contacts
+/// the engine, so it still works — and exits 0 — while the engine is down.
+fn cli_version(bin: &str) -> String {
+    super::run(bin, &["--version"])
+        .ok()
+        .and_then(|s| {
+            let rest = s.split(" version ").nth(1)?;
+            Some(rest.split([',', ' ', '\n']).next()?.trim().to_string())
+        })
+        .unwrap_or_default()
+}
+
 /// Detect a single runtime: locate the binary, read its version, probe whether
 /// the engine is reachable and whether `compose` is available.
 #[tauri::command]
@@ -81,9 +94,7 @@ pub async fn detect_runtime(runtime: String) -> Result<RuntimeInfo, String> {
         }
     };
 
-    let version = super::run(&path, &["version", "--format", "{{.Client.Version}}"])
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
+    let version = cli_version(&path);
     let is_running = super::run(&path, &["info"]).is_ok();
     let compose_available = super::run(&path, &["compose", "version"]).is_ok();
 
@@ -225,36 +236,65 @@ fn register_helper_dir(helpers_dir: &str) -> Result<(), String> {
     std::fs::write(&conf, updated).map_err(|e| e.to_string())
 }
 
+/// Start the Podman machine, creating it first if none exists.
+fn start_podman() -> Result<(), String> {
+    let bin = super::resolve("podman")?;
+
+    // podman machine on macOS needs gvproxy + vfkit helper binaries.
+    #[cfg(target_os = "macos")]
+    {
+        let helpers = ensure_podman_helpers()?;
+        register_helper_dir(&helpers)?;
+    }
+
+    // A Podman machine (Linux VM) must exist before it can be started.
+    let machines = super::run(&bin, &["machine", "list", "--format", "json"])
+        .map(|s| super::parse_json_lines(&s))
+        .unwrap_or_default();
+    if machines.is_empty() {
+        super::run(&bin, &["machine", "init"])
+            .map_err(|e| format!("podman machine init failed: {e}"))?;
+    }
+    match super::run(&bin, &["machine", "start"]) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already running") => Ok(()),
+        Err(e) => Err(format!("podman machine start failed: {e}")),
+    }
+}
+
+/// True when the docker CLI's endpoint is really Podman's API socket — e.g.
+/// `podman-mac-helper` symlinks /var/run/docker.sock to the podman machine.
+/// Then the "docker engine" is the podman machine, and starting it starts docker.
+fn docker_served_by_podman() -> bool {
+    let Ok(bin) = super::resolve("docker") else {
+        return false;
+    };
+    let format = "{{.Endpoints.docker.Host}}";
+    let Ok(host) = super::run(&bin, &["context", "inspect", "--format", format]) else {
+        return false;
+    };
+    let Some(sock) = host.trim().strip_prefix("unix://") else {
+        return false;
+    };
+    let sock = std::path::Path::new(sock);
+    // The link target may not exist while the machine is down, so fall back
+    // to reading the link itself.
+    let target = std::fs::canonicalize(sock)
+        .or_else(|_| std::fs::read_link(sock))
+        .unwrap_or_else(|_| sock.to_path_buf());
+    target.to_string_lossy().contains("podman")
+}
+
 #[tauri::command]
 pub async fn start_runtime_daemon(runtime: String) -> Result<(), String> {
     match runtime.as_str() {
-        "podman" => {
-            let bin = super::resolve("podman")?;
-
-            // podman machine on macOS needs gvproxy + vfkit helper binaries.
-            #[cfg(target_os = "macos")]
-            {
-                let helpers = ensure_podman_helpers()?;
-                register_helper_dir(&helpers)?;
-            }
-
-            // A Podman machine (Linux VM) must exist before it can be started.
-            let machines = super::run(&bin, &["machine", "list", "--format", "json"])
-                .map(|s| super::parse_json_lines(&s))
-                .unwrap_or_default();
-            if machines.is_empty() {
-                super::run(&bin, &["machine", "init"])
-                    .map_err(|e| format!("podman machine init failed: {e}"))?;
-            }
-            match super::run(&bin, &["machine", "start"]) {
-                Ok(_) => Ok(()),
-                Err(e) if e.contains("already running") => Ok(()),
-                Err(e) => Err(format!("podman machine start failed: {e}")),
-            }
-        }
+        "podman" => start_podman(),
         "docker" => {
             // The standalone CLI omits the registry credential helper — fetch it.
             let _ = super::ensure_docker_helpers();
+            if docker_served_by_podman() {
+                return start_podman();
+            }
             // macOS has no native Docker daemon — `dockerd` is Linux-only, so a
             // Docker engine is always a Linux VM. First launch a desktop engine
             // app if one is installed (OrbStack / Docker Desktop / Rancher).
@@ -344,9 +384,7 @@ pub async fn get_setup_status(runtime: String) -> Result<SetupStatus, String> {
     let bin = path.unwrap_or_default();
 
     let cli_version = if cli_installed {
-        super::run(&bin, &["version", "--format", "{{.Client.Version}}"])
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default()
+        cli_version(&bin)
     } else {
         String::new()
     };

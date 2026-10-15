@@ -60,6 +60,15 @@ fn build_pids() -> &'static Mutex<HashMap<String, u32>> {
     M.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Expand a leading `~` to $HOME; the CLI gets the path verbatim, not via a shell.
+fn expand_tilde(path: String) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if path == "~" => home,
+        Ok(home) if path.starts_with("~/") => format!("{home}{}", &path[1..]),
+        _ => path,
+    }
+}
+
 fn is_instruction(word: &str) -> bool {
     matches!(
         word.to_uppercase().as_str(),
@@ -167,6 +176,8 @@ pub async fn start_build(
     push_on_success: bool,
 ) -> Result<String, String> {
     let bin = super::resolve(&runtime)?;
+    let context_path = expand_tilde(context_path);
+    let dockerfile = dockerfile.map(expand_tilde);
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())

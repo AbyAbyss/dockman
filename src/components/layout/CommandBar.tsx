@@ -1,5 +1,6 @@
-// Command bar — 54px, fixed. Page title + subtitle, the palette trigger,
-// three host meters and the runtime toggle that filters every list in the app.
+// Command bar — 54px, fixed. Page title + subtitle, the search box (⌘K chip
+// opens the palette), three host meters and the runtime toggle that filters
+// every list in the app.
 
 import { useLocation } from 'react-router-dom';
 import { Glyph } from '@/components/ui/Icon';
@@ -26,6 +27,8 @@ export function CommandBar({ onOpenPalette }: CommandBarProps) {
   const runtimeFilter = useAppStore((s) => s.runtimeFilter);
   const setRuntimeFilter = useAppStore((s) => s.setRuntimeFilter);
   const statusFilter = useAppStore((s) => s.statusFilter);
+  const query = useAppStore((s) => s.query);
+  const setQuery = useAppStore((s) => s.setQuery);
 
   const tab =
     TABS.find((t) => (t.path === '/' ? pathname === '/' : pathname.startsWith(t.path))) ??
@@ -73,11 +76,41 @@ export function CommandBar({ onOpenPalette }: CommandBarProps) {
         )}
       </div>
 
-      <button type="button" className="cmdbar-search" onClick={onOpenPalette}>
+      <label className="cmdbar-search">
         <Glyph name="search" size={13} sw={1.7} />
-        <span className="cmdbar-search-ph">Search containers, images, logs…</span>
-        <kbd className="cmdbar-kbd mono">⌘K</kbd>
-      </button>
+        <input
+          className="cmdbar-search-ph"
+          placeholder="Search containers, images, logs…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setQuery('');
+              e.currentTarget.blur();
+            }
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: 'transparent',
+            border: 0,
+            outline: 'none',
+            font: 'inherit',
+            color: 'var(--text)',
+          }}
+        />
+        <kbd
+          className="cmdbar-kbd mono"
+          title="Open command palette"
+          style={{ cursor: 'pointer' }}
+          onClick={(e) => {
+            e.preventDefault();
+            onOpenPalette();
+          }}
+        >
+          ⌘K
+        </kbd>
+      </label>
 
       <div className="cmdbar-trail">
         {meters.map((m) => (

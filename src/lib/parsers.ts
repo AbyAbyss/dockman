@@ -124,7 +124,7 @@ export function parseImage(rt: RuntimeName, o: Raw): ImageItem {
     tag: tag || 'latest',
     size,
     built: str(o, 'CreatedSince', 'CreatedAt') || relAge(o.Created) || '—',
-    used: false,
+    used: false, // derived from the container list on the Images page
     layers: 0,
     pulls: 0,
   };
@@ -138,7 +138,9 @@ export function parseVolume(rt: RuntimeName, o: Raw): Volume {
     used: 0,
     mount: str(o, 'Mountpoint'),
     driver: str(o, 'Driver') || 'local',
-    attached: '—',
+    // The volume listing says nothing about attachments and the container
+    // list carries no mount data, so attachment is unknown (''), not '—'.
+    attached: '',
     created: str(o, 'CreatedAt') || '—',
   };
 }

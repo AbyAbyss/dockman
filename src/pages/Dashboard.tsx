@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Glyph, type IconName } from '@/components/ui/Icon';
 import { useAppStore } from '@/store/appStore';
 import { useCounts } from '@/hooks/useCounts';
-import { useHostResources, HOST } from '@/hooks/useHostResources';
+import { useHostResources } from '@/hooks/useHostResources';
 import { useImages, useRuntimes, useVolumes } from '@/hooks/useData';
 import { ACTIVITY, CPU_SPARK, MEM_SPARK } from '@/data/seed';
 import type { ActivityKind, Container, RuntimeName } from '@/types';
@@ -103,21 +103,21 @@ export default function Dashboard() {
     {
       k: 'CPU',
       v: `${Math.round(res.cpuPercent)}%`,
-      sub: `${res.coresBusy} of ${HOST.cores} cores`,
+      sub: `${res.coresBusy} of ${res.cores} cores`,
       pct: res.cpuPercent,
       tone: 'accent' as const,
     },
     {
       k: 'MEMORY',
       v: `${res.memUsedGb.toFixed(1)} GB`,
-      sub: `of ${HOST.memTotalGb}`,
+      sub: `of ${Math.round(res.memTotalGb)}`,
       pct: res.memPercent,
       tone: 'accent' as const,
     },
     {
       k: 'DISK',
-      v: `${res.diskUsedGb} GB`,
-      sub: `${res.diskFreeGb} free`,
+      v: `${Math.round(res.diskUsedGb)} GB`,
+      sub: `${Math.round(res.diskFreeGb)} GB free`,
       pct: res.diskPercent,
       tone: 'warn' as const,
     },
@@ -133,7 +133,7 @@ export default function Dashboard() {
     {
       icon: 'play',
       label: 'Start all stopped',
-      sub: `${counts.stopped} containers · resume paused too`,
+      sub: `${counts.stopped} stopped containers`,
       tone: 'accent',
       run: startAllStopped,
     },
@@ -262,21 +262,21 @@ export default function Dashboard() {
             {
               k: 'CPU',
               v: `${Math.round(res.cpuPercent)}%`,
-              sub: `${res.coresBusy} of ${HOST.cores} cores busy`,
+              sub: `${res.coresBusy} of ${res.cores} cores busy`,
               series: CPU_SPARK,
               tone: 'accent' as const,
             },
             {
               k: 'MEMORY',
               v: `${res.memUsedGb.toFixed(1)} GB`,
-              sub: `of ${HOST.memTotalGb} GB`,
+              sub: `of ${Math.round(res.memTotalGb)} GB`,
               series: MEM_SPARK,
               tone: 'accent-soft' as const,
             },
             {
               k: 'DISK',
-              v: `${res.diskUsedGb} GB`,
-              sub: `${res.diskFreeGb} GB free`,
+              v: `${Math.round(res.diskUsedGb)} GB`,
+              sub: `${Math.round(res.diskFreeGb)} GB free`,
               series: MEM_SPARK.map((m) => m * 0.4),
               tone: 'warn' as const,
             },

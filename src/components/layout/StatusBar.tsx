@@ -2,16 +2,21 @@
 // running / stopped tally and the palette hint.
 
 import { useCounts } from '@/hooks/useCounts';
-import { RUNTIMES } from '@/data/seed';
+import { useRuntimes } from '@/hooks/useData';
+import type { RuntimeMeta } from '@/types';
+
+const versionOf = (rt: RuntimeMeta) =>
+  rt.found ? rt.version || '—' : 'not installed';
 
 export function StatusBar() {
   const counts = useCounts();
+  const { runtimes } = useRuntimes();
 
   return (
     <footer className="statusbar mono">
       <span>
-        dockman 0.1 · docker {RUNTIMES.docker.version} · podman{' '}
-        {RUNTIMES.podman.version}
+        dockman 0.1 · docker {versionOf(runtimes.docker)} · podman{' '}
+        {versionOf(runtimes.podman)}
       </span>
       <span>
         {counts.running} running · {counts.stopped} stopped

@@ -69,16 +69,22 @@ export function useRuntimes(): {
     [],
   );
   const runtimes = useMemo(() => {
-    if (!res.live || res.data.length === 0) return RUNTIMES;
-    const merged: Record<RuntimeName, RuntimeMeta> = { ...RUNTIMES };
+    if (!res.live) return RUNTIMES;
+    // Until detection answers (or if it fails), nothing is known to be
+    // installed — don't present the seed's found / running / version as real.
+    const merged: Record<RuntimeName, RuntimeMeta> = {
+      docker: { ...RUNTIMES.docker, found: false, running: false, version: '', path: '' },
+      podman: { ...RUNTIMES.podman, found: false, running: false, version: '', path: '' },
+    };
     for (const info of res.data) {
       const base = RUNTIMES[info.runtime];
       if (!base) continue;
       merged[info.runtime] = {
         ...base,
         found: info.found,
-        version: info.version || base.version,
-        path: info.path || base.path,
+        // Live data only: a missing binary has no version or path.
+        version: info.version,
+        path: info.path,
         arch: info.arch || base.arch,
         running: info.isRunning,
       };

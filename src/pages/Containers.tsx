@@ -78,6 +78,13 @@ function PortsCell({ raw }: { raw: string }) {
   );
 }
 
+/** Count containers belonging to a compose service by whole-token name match. */
+function replicaCount(items: Container[], service: string): number {
+  const esc = service.replace(/[^a-zA-Z0-9]/g, '\\$&');
+  const re = new RegExp(`(^|[^a-zA-Z0-9])${esc}([^a-zA-Z0-9]|$)`, 'i');
+  return items.filter((c) => re.test(c.name)).length;
+}
+
 interface StackInfo {
   file: string;
   services: string[];
@@ -111,11 +118,12 @@ export default function Containers() {
   const stopStack = useAppStore((s) => s.stopStack);
   const restartStack = useAppStore((s) => s.restartStack);
   const refresh = useAppStore((s) => s.refresh);
+  const reportError = useAppStore((s) => s.reportError);
   const live = useAppStore((s) => s.live);
   const loading = useAppStore((s) => s.loading);
   const { runtimes, refetch: refetchRuntimes } = useRuntimes();
 
-  const [startingEngine, setStartingEngine] = useState(false);
+  const [startingEngine, setStartingEngine] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('logs');
   const [paneWidth, setPaneWidth] = useState(() => {
     const stored = Number(localStorage.getItem(PANE_KEY));
@@ -311,24 +319,19 @@ export default function Containers() {
     }
   };
 
-  // The engine that would be serving this list, when it is not running.
-  const downEngine =
-    runtimeFilter !== 'all'
-      ? runtimes[runtimeFilter].running
-        ? null
-        : runtimeFilter
-      : (['docker', 'podman'] as RuntimeName[]).every((rt) => !runtimes[rt].running)
-        ? 'docker'
-        : null;
+  // The engines that would be serving this list, when none of them is running.
+  const scope: RuntimeName[] =
+    runtimeFilter === 'all' ? ['docker', 'podman'] : [runtimeFilter];
+  const downEngines = scope.every((rt) => !runtimes[rt].running) ? scope : [];
 
   const startEngine = (rt: string) => {
-    setStartingEngine(true);
+    setStartingEngine(rt);
     RuntimeCommands.startDaemon(rt as RuntimeName)
-      .catch(() => undefined)
+      .catch(reportError)
       .finally(() => {
         refetchRuntimes();
         refresh();
-        setStartingEngine(false);
+        setStartingEngine(null);
       });
   };
 
@@ -412,15 +415,15 @@ export default function Containers() {
           )}
 
           {/* Nothing to list because the engine that would serve it is down. */}
-          {groups.length === 0 && !loading && containers.length === 0 && downEngine && (
+          {groups.length === 0 && !loading && containers.length === 0 && downEngines.length > 0 && (
             <EngineDown
-              runtime={downEngine}
+              runtimes={downEngines}
               starting={startingEngine}
-              onStart={() => startEngine(downEngine)}
+              onStart={startEngine}
             />
           )}
 
-          {groups.length === 0 && !loading && !(containers.length === 0 && downEngine) && (
+          {groups.length === 0 && !loading && !(containers.length === 0 && downEngines.length > 0) && (
             <div className="empty">
               <Glyph name="container" size={24} />
               <div>
@@ -453,7 +456,16 @@ export default function Containers() {
             const up = g.items.filter((c) => c.status === 'running').length;
             const tone = up === g.items.length ? 'ok' : up === 0 ? 'off' : 'part';
             const info = composeStacks[g.key];
-            const rep = replicas[g.key] ?? 1;
+            // The real count of the service scaleStack drives, unless the
+            // user has a pending value from the stepper.
+            const rep =
+              replicas[g.key] ??
+              (info?.services[0]
+                ? replicaCount(
+                    containers.filter((c) => c.stack === g.key),
+                    info.services[0],
+                  )
+                : g.items.length);
             const groupSelected = ids.every((id) => selection.includes(id));
 
             return (
